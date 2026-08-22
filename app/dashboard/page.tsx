@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
-// This route exists only as the OTP redirect target. It looks up the
+// This route exists only as a post-auth redirect target. It looks up the
 // logged-in user's username and forwards them to their own profile page,
 // which doubles as both the public view and the owner's management view.
 export default function Dashboard() {
@@ -16,7 +16,7 @@ export default function Dashboard() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
-        router.push('/login');
+        router.push('/');
         return;
       }
       const { data: profile } = await supabase
@@ -24,7 +24,7 @@ export default function Dashboard() {
         .select('username')
         .eq('id', user.id)
         .single();
-      router.push(profile ? `/${profile.username}` : '/login');
+      router.push(profile ? `/${profile.username}` : '/');
     })();
   }, [router]);
 
