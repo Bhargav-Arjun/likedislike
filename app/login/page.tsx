@@ -34,10 +34,7 @@ export default function Login() {
             onChange={(e) => setEmail(e.target.value)}
             className="border border-neutral-300 rounded-lg px-4 py-2"
           />
-          <button
-            type="submit"
-            className="bg-black text-white rounded-lg px-4 py-2 font-medium"
-          >
+          <button type="submit" className="bg-black text-white rounded-lg px-4 py-2 font-medium">
             send magic link
           </button>
           {error && <p className="text-red-500 text-sm">{error}</p>}
