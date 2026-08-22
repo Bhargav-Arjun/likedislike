@@ -6,7 +6,9 @@ why, on a single shareable profile. Built for a free-tier stack targeting
 
 ## What's included
 
-- Passwordless auth (Supabase magic link)
+- Email + password auth (single screen, toggle between Sign up / Log in —
+  no separate landing page, no magic link, no email step at all when
+  "Confirm email" is off per the setup steps below)
 - Public profile at `yourapp.vercel.app/username` — no separate pages per
   category, everything scrolls on one screen
 - Default categories on signup: Movies+Series (20 item limit), Songs (15),
@@ -35,7 +37,12 @@ why, on a single shareable profile. Built for a free-tier stack targeting
    table, RLS policy, and the triggers that auto-create a profile + default
    categories on signup, and auto-create notifications on reactions,
    matches, and messages.
-3. Authentication → Providers → confirm Email is enabled (magic link)
+3. Authentication → Providers → Email → confirm it's enabled, and **turn
+   off "Confirm email"**. This is the important step: with it off, signup
+   creates the account instantly with no email sent at all — no magic
+   link, no confirmation click, and no chance of hitting Supabase's default
+   email rate limit (which is very low and is what causes the "email rate
+   limit exceeded" error during testing).
 4. Authentication → URL Configuration → add your Vercel URL to Redirect URLs
    once deployed
 5. Storage → Create bucket → name it `avatars` → toggle **Public bucket** on
@@ -77,10 +84,12 @@ works fine for this).
 
 ## 6. Try it
 
-- Visit your Vercel URL → "create your page" → enter email → check inbox for
-  the magic link
-- You land on your own profile at `/your-auto-username` with 4 empty default
-  categories already there
+- Visit your Vercel URL → you land straight on the sign up screen → enter
+  email + password → account is created instantly and you land on your own
+  profile at `/your-auto-username` with 4 empty default categories already
+  there
+- Returning visitors who are already logged in are redirected straight to
+  their profile if they open the root URL again
 - Tap the `+` button → pick a category → search (auto-fetch) or upload a
   photo → add your note, rating, and like/dislike → Save
 - Tap "Edit profile" to add a display name, avatar, and social links
