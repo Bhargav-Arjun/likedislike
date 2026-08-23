@@ -17,6 +17,8 @@ export default function ProfilePage({ params }: { params: { username: string } }
   const [sheetOpen, setSheetOpen] = useState(false);
   const [matchContext, setMatchContext] = useState<Item | null>(null);
   const [visitorCategories, setVisitorCategories] = useState<Category[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<Item | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     const {
@@ -131,6 +133,15 @@ export default function ProfilePage({ params }: { params: { username: string } }
     load();
   }
 
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    await supabase.from('items').delete().eq('id', deleteTarget.id);
+    setDeleting(false);
+    setDeleteTarget(null);
+    load();
+  }
+
   async function handleItemSaved(inserted: any) {
     if (matchContext && inserted) {
       await supabase.from('item_matches').insert({
@@ -153,30 +164,31 @@ export default function ProfilePage({ params }: { params: { username: string } }
 
   return (
     <main className="min-h-screen px-5 py-6">
-      <div className="flex items-center gap-4 mb-3">
-        <div className="w-14 h-14 rounded-full bg-neutral-200 border-2 border-black flex items-center justify-center flex-shrink-0 overflow-hidden">
+      <div className="flex items-center gap-5 mb-3">
+        <div className="w-20 h-20 rounded-full bg-neutral-200 border-2 border-black flex items-center justify-center flex-shrink-0 overflow-hidden">
           {profile.avatar_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={profile.avatar_url} alt={profile.display_name} className="w-full h-full object-cover" />
           ) : (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#A3A3A3" strokeWidth="1.8">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#A3A3A3" strokeWidth="1.8">
               <circle cx="12" cy="8" r="4" />
               <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
             </svg>
           )}
         </div>
-        <div className="flex-1">
-          <p className="font-medium text-base">{profile.display_name}</p>
-          <div className="flex gap-4">
-            <span className="text-sm">
-              <b className="font-medium">{totalLikes}</b> <span className="text-neutral-400 text-xs">likes</span>
-            </span>
-            <span className="text-sm">
-              <b className="font-medium">{totalDislikes}</b> <span className="text-neutral-400 text-xs">dislikes</span>
-            </span>
+        <div className="flex flex-1 justify-around">
+          <div className="flex flex-col items-center">
+            <span className="font-semibold text-base">{totalLikes}</span>
+            <span className="text-xs text-neutral-500">likes</span>
+          </div>
+          <div className="flex flex-col items-center">
+            <span className="font-semibold text-base">{totalDislikes}</span>
+            <span className="text-xs text-neutral-500">dislikes</span>
           </div>
         </div>
       </div>
+
+      <p className="font-medium text-base mb-3">{profile.display_name}</p>
 
       <SocialIcons profile={profile} />
 
@@ -228,12 +240,41 @@ export default function ProfilePage({ params }: { params: { username: string } }
                   onMatch={handleMatch}
                   onDiscuss={handleDiscuss}
                   onRatingChange={handleRatingChange}
+                  onLongPress={(i) => isOwner && setDeleteTarget(i)}
                 />
               ))}
             </div>
           )}
         </section>
       ))}
+
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-8"
+          style={{ background: 'rgba(0,0,0,0.45)' }}
+          onClick={() => setDeleteTarget(null)}
+        >
+          <div className="bg-white rounded-xl p-4 w-full max-w-xs" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-medium mb-1">Delete "{deleteTarget.title}"?</p>
+            <p className="text-xs text-neutral-400 mb-4">This can't be undone.</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 border border-neutral-300 rounded-lg py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="flex-1 bg-red-500 text-white rounded-lg py-2 text-sm"
+              >
+                {deleting ? '...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {sheetOpen && (
         <AddItemSheet
