@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import StarRating from './StarRating';
 import { Item, CategoryType } from '@/lib/supabase';
 
@@ -18,6 +19,7 @@ export default function ItemCard({
   onMatch,
   onDiscuss,
   onRatingChange,
+  onLongPress,
 }: {
   item: ItemWithCounts;
   categoryType: CategoryType;
@@ -27,13 +29,29 @@ export default function ItemCard({
   onMatch: (item: ItemWithCounts) => void;
   onDiscuss: (item: ItemWithCounts) => void;
   onRatingChange?: (item: ItemWithCounts, rating: number) => void;
+  onLongPress?: (item: ItemWithCounts) => void;
 }) {
   const showRating = categoryType === 'movies_series' || categoryType === 'food';
   const isLike = item.stance === 'like';
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function startPress() {
+    if (!isOwner || !onLongPress) return;
+    pressTimer.current = setTimeout(() => onLongPress(item), 550);
+  }
+  function cancelPress() {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+  }
 
   return (
     <div
       className="relative rounded-lg p-3 flex flex-col gap-2"
+      onTouchStart={startPress}
+      onTouchEnd={cancelPress}
+      onTouchMove={cancelPress}
+      onMouseDown={startPress}
+      onMouseUp={cancelPress}
+      onMouseLeave={cancelPress}
       style={{
         background: '#FAFAFA',
         borderLeft: `3px solid ${isLike ? '#3B82F6' : '#3B82F6'}`,
