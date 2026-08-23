@@ -102,6 +102,32 @@ automatically at signup and used only in the profile URL — it doesn't
 change if the person edits their display name later, so shared links never
 break.
 
+## Updating an existing deployment (Phase 1.1)
+
+If you already ran `schema.sql` once, don't re-run the whole file (it will
+error on "already exists"). Instead, open `supabase/schema.sql`, scroll to
+the **MIGRATION 2** section near the bottom, copy just that section, and run
+it in the SQL Editor. It adds:
+
+- A `gender` field on profiles (Edit Profile only, not shown publicly)
+- Renames the 4 default categories to friendlier names
+- **Storage policies for the `avatars` and `item-images` buckets** — this is
+  the fix for photo uploads silently failing after the first try. Making a
+  bucket "Public" only controls who can *view* files; without these
+  policies nobody had permission to *upload* to it.
+
+## New in this update
+
+- **Custom categories** — in the "+ Add item" sheet, the category dropdown
+  has a "+ New category" option at the bottom to create your own (Cars,
+  Superheroes, anything), alongside the 4 defaults
+- **Delete an item** — long-press (or press-and-hold) any item card as the
+  owner to bring up a delete confirmation
+- **Gender field** — added to Edit Profile, private (not shown on the
+  public page), matching how Instagram handles it
+- **Instagram-style header** — avatar on the left, likes/dislikes stacked
+  to the right in a row, name below, matching the reference screenshots
+
 ## Notes on scope
 
 - Match "percentage compatibility" between two profiles was discussed but
