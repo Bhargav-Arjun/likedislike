@@ -247,7 +247,7 @@ export default function ProfilePage({ params }: { params: { username: string } }
         />
       )}
 
-      <p className="text-center text-[11px] text-neutral-300 mt-8">made with likedislike</p>
+      <p className="text-center text-[11px] text-neutral-300 mt-8">made with GetMe</p>
     </main>
   );
 }
