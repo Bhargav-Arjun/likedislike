@@ -1,3 +1,21 @@
+drop trigger if exists on_auth_user_created on auth.users;
+
+drop function if exists public.handle_new_user() cascade;
+drop function if exists public.notify_on_reaction() cascade;
+drop function if exists public.notify_on_match() cascade;
+drop function if exists public.notify_on_message() cascade;
+
+drop table if exists notifications cascade;
+drop table if exists messages cascade;
+drop table if exists conversations cascade;
+drop table if exists item_matches cascade;
+drop table if exists item_reactions cascade;
+drop table if exists items cascade;
+drop table if exists categories cascade;
+drop table if exists profiles cascade;
+
+
+
 -- Run this entire file in Supabase SQL Editor (Project -> SQL Editor -> New query)
 
 -- ============ PROFILES ============
@@ -186,10 +204,10 @@ begin
   returning id into new_profile_id;
 
   insert into public.categories (profile_id, name, type, item_limit, sort_order) values
-    (new_profile_id, 'Top rated movies', 'movies_series', 20, 0),
-    (new_profile_id, 'Top rated songs', 'songs', 15, 1),
-    (new_profile_id, 'Top rated food', 'food', 10, 2),
-    (new_profile_id, 'Best places', 'places', 10, 3);
+    (new_profile_id, 'Movies I like', 'movies_series', 20, 0),
+    (new_profile_id, 'Songs I listen', 'songs', 15, 1),
+    (new_profile_id, 'I love food', 'food', 10, 2),
+    (new_profile_id, 'Best places to visit', 'places', 10, 3);
 
   return new;
 end;
@@ -257,3 +275,39 @@ $$ language plpgsql security definer;
 create trigger on_message_created
   after insert on messages
   for each row execute function public.notify_on_message();
+
+-- ============ MIGRATION 2: run this if you already ran schema.sql once ============
+-- (New installs: this is already folded into the sections above/below, no separate action needed)
+
+-- Gender field for Edit Profile (not shown publicly, matches Instagram's own pattern)
+alter table profiles add column if not exists gender text;
+
+-- Friendlier default category names (only affects rows still using the old defaults)
+update categories set name = 'Movies I like' where name = 'Top rated movies';
+update categories set name = 'Songs I listen' where name = 'Top rated songs';
+update categories set name = 'I love food' where name = 'Top rated food';
+update categories set name = 'Best places to visit' where name = 'Best places';
+
+-- Storage policies -- this is the actual fix for "photo upload stops showing after a
+-- while": making a bucket "Public" only controls read access. Without an explicit
+-- policy, authenticated users have no permission to upload/overwrite files at all,
+-- so uploads were silently failing.
+create policy "public read avatars" on storage.objects for select
+  using (bucket_id = 'avatars');
+create policy "owner upload avatars" on storage.objects for insert
+  with check (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
+create policy "owner update avatars" on storage.objects for update
+  using (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
+create policy "owner delete avatars" on storage.objects for delete
+  using (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
+
+create policy "public read item images" on storage.objects for select
+  using (bucket_id = 'item-images');
+create policy "owner upload item images" on storage.objects for insert
+  with check (bucket_id = 'item-images' and auth.uid()::text = (storage.foldername(name))[1]);
+create policy "owner update item images" on storage.objects for update
+  using (bucket_id = 'item-images' and auth.uid()::text = (storage.foldername(name))[1]);
+create policy "owner delete item images" on storage.objects for delete
+  using (bucket_id = 'item-images' and auth.uid()::text = (storage.foldername(name))[1]);
+
+
