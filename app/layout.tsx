@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'likedislike',
-  description: 'Your taste, one link.',
+  title: 'GetMe',
+  description: "No need to ask. It's all right here.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
