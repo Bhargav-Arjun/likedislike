@@ -19,6 +19,9 @@ export default function AddItemSheet({
   onSaved: (insertedItem: any) => void;
 }) {
   const [categoryId, setCategoryId] = useState(defaultCategoryId || categories[0]?.id || '');
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [localCategories, setLocalCategories] = useState(categories);
   const [query, setQuery] = useState(prefill?.title || '');
   const [results, setResults] = useState<FetchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -32,7 +35,7 @@ export default function AddItemSheet({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const category = categories.find((c) => c.id === categoryId);
+  const category = localCategories.find((c) => c.id === categoryId);
   const autoFetchable = category?.type === 'movies_series' || category?.type === 'songs';
   const showRating = category?.type === 'movies_series' || category?.type === 'food';
   const promptHint = category ? NOTE_PROMPTS[category.type][0] : 'why this made the list...';
@@ -53,6 +56,39 @@ export default function AddItemSheet({
       setResults([]);
     }
     setSearching(false);
+  }
+
+  async function createCategory() {
+    if (!newCategoryName.trim()) return;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data: created, error: catError } = await supabase
+      .from('categories')
+      .insert({
+        profile_id: user.id,
+        name: newCategoryName.trim(),
+        type: 'custom',
+        item_limit: 20,
+        sort_order: localCategories.length,
+      })
+      .select()
+      .single();
+
+    if (catError) {
+      setError(catError.message);
+      return;
+    }
+    if (created) {
+      setLocalCategories([...localCategories, created]);
+      setCategoryId(created.id);
+      setCreatingCategory(false);
+      setNewCategoryName('');
+      setSelected(null);
+      setResults([]);
+    }
   }
 
   async function handleSave() {
@@ -84,10 +120,13 @@ export default function AddItemSheet({
       const ext = manualImage.name.split('.').pop();
       const path = `${user.id}/${Date.now()}.${ext}`;
       const { error: uploadError } = await supabase.storage.from('item-images').upload(path, manualImage);
-      if (!uploadError) {
-        const { data: pub } = supabase.storage.from('item-images').getPublicUrl(path);
-        imageUrl = pub.publicUrl;
+      if (uploadError) {
+        setError(`Photo upload failed: ${uploadError.message}`);
+        setSaving(false);
+        return;
       }
+      const { data: pub } = supabase.storage.from('item-images').getPublicUrl(path);
+      imageUrl = pub.publicUrl;
     }
 
     const { count } = await supabase
@@ -140,21 +179,46 @@ export default function AddItemSheet({
         <p className="font-medium text-base mb-3">Add item</p>
 
         <label className="text-xs text-neutral-500">Category</label>
-        <select
-          value={categoryId}
-          onChange={(e) => {
-            setCategoryId(e.target.value);
-            setSelected(null);
-            setResults([]);
-          }}
-          className="w-full border border-neutral-300 rounded-lg px-3 py-2 mt-1 mb-3"
-        >
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+        {!creatingCategory ? (
+          <>
+            <select
+              value={categoryId}
+              onChange={(e) => {
+                if (e.target.value === '__new__') {
+                  setCreatingCategory(true);
+                  return;
+                }
+                setCategoryId(e.target.value);
+                setSelected(null);
+                setResults([]);
+              }}
+              className="w-full border border-neutral-300 rounded-lg px-3 py-2 mt-1 mb-3"
+            >
+              {localCategories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+              <option value="__new__">+ New category</option>
+            </select>
+          </>
+        ) : (
+          <div className="flex gap-2 mt-1 mb-3">
+            <input
+              autoFocus
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              placeholder="Category name"
+              className="flex-1 border border-neutral-300 rounded-lg px-3 py-2"
+            />
+            <button onClick={createCategory} className="bg-brand text-white rounded-lg px-3 text-sm">
+              Add
+            </button>
+            <button onClick={() => setCreatingCategory(false)} className="text-neutral-400 text-sm px-1">
+              Cancel
+            </button>
+          </div>
+        )}
 
         {autoFetchable && !selected && (
           <>
@@ -315,4 +379,3 @@ function RatingInput({ rating, onChange }: { rating: number; onChange: (v: numbe
     </div>
   );
 }
-
