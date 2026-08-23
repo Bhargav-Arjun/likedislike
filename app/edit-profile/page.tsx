@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -20,6 +19,7 @@ export default function EditProfile() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
@@ -29,7 +29,7 @@ export default function EditProfile() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
-        router.push('/login');
+        router.push('/');
         return;
       }
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
@@ -46,6 +46,7 @@ export default function EditProfile() {
   async function handleSave() {
     if (!profile) return;
     setSaving(true);
+    setError('');
 
     let avatarUrl = profile.avatar_url;
     if (avatarFile) {
@@ -54,18 +55,22 @@ export default function EditProfile() {
       const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(path, avatarFile, { upsert: true });
-      if (!uploadError) {
-        const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
-        avatarUrl = `${pub.publicUrl}?t=${Date.now()}`;
+      if (uploadError) {
+        setError(`Photo upload failed: ${uploadError.message}`);
+        setSaving(false);
+        return;
       }
+      const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
+      avatarUrl = `${pub.publicUrl}?t=${Date.now()}`;
     }
 
-    const { error } = await supabase
+    const { error: saveError } = await supabase
       .from('profiles')
       .update({
         username: profile.username,
         display_name: profile.display_name,
         avatar_url: avatarUrl,
+        gender: profile.gender || null,
         whatsapp: profile.whatsapp || null,
         youtube: profile.youtube || null,
         snapchat: profile.snapchat || null,
@@ -77,7 +82,11 @@ export default function EditProfile() {
       .eq('id', profile.id);
 
     setSaving(false);
-    if (!error) router.push(`/${profile.username}`);
+    if (saveError) {
+      setError(saveError.message);
+      return;
+    }
+    router.push(`/${profile.username}`);
   }
 
   if (loading || !profile) return <main className="min-h-screen flex items-center justify-center">loading...</main>;
@@ -129,6 +138,18 @@ export default function EditProfile() {
         className="w-full border border-neutral-300 rounded-lg px-3 py-2 mt-1 mb-4"
       />
 
+      <label className="text-xs text-neutral-500">Gender</label>
+      <select
+        value={profile.gender || ''}
+        onChange={(e) => updateField('gender', e.target.value)}
+        className="w-full border border-neutral-300 rounded-lg px-3 py-2 mt-1 mb-4"
+      >
+        <option value="">Prefer not to say</option>
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+        <option value="other">Other</option>
+      </select>
+
       <p className="text-xs font-medium text-neutral-500 mb-2">SOCIAL LINKS</p>
       <div className="flex flex-col gap-2 mb-6">
         {SOCIAL_FIELDS.map((f) => (
@@ -156,6 +177,7 @@ export default function EditProfile() {
       >
         {saving ? 'saving...' : 'Save'}
       </button>
+      {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
     </main>
   );
 }
