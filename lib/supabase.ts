@@ -1,9 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export type Profile = {
   id: string;
@@ -18,6 +18,7 @@ export type Profile = {
   gmail: string | null;
   telegram: string | null;
   phone: string | null;
+  gender: string | null;
 };
 
 export type CategoryType = 'movies_series' | 'songs' | 'food' | 'places' | 'custom';
@@ -47,38 +48,15 @@ export type Item = {
 };
 
 export type CategoryWithItems = Category & {
-  items: (Item & {
-    reaction_count?: number;
-    match_count?: number;
-    user_reacted?: boolean;
-  })[];
+  items: (Item & { reaction_count?: number; match_count?: number; user_reacted?: boolean })[];
 };
 
-// Placeholder prompts shown in the "why" note field,
-// per category type.
+// Placeholder prompts shown in the "why" note field, per category type.
+// Reduces blank-canvas anxiety when adding an item.
 export const NOTE_PROMPTS: Record<CategoryType, string[]> = {
-  movies_series: [
-    'mass buildup, story hit different...',
-    'overrated because...',
-    'rewatch value is unmatched...',
-  ],
-  songs: [
-    'listen to this at 2 AM...',
-    'childhood core memory...',
-    'this beat lives in my head...',
-  ],
-  food: [
-    'best I have ever had, period...',
-    'go-to comfort order...',
-    'worth the wait, trust me...',
-  ],
-  places: [
-    'underrated spot, go before it blows up...',
-    'perfect weekend hangout...',
-    'view alone is worth it...',
-  ],
-  custom: [
-    'why this made the list...',
-    '',
-  ],
+  movies_series: ['mass buildup, story hit different...', 'overrated because...', 'rewatch value is unmatched...'],
+  songs: ['listen to this at 2 AM...', 'childhood core memory...', 'this beat lives in my head...'],
+  food: ['best I have ever had, period...', 'go-to comfort order...', 'worth the wait, trust me...'],
+  places: ['underrated spot, go before it blows up...', 'perfect weekend hangout...', 'view alone is worth it...'],
+  custom: ['why this made the list...', ''],
 };
