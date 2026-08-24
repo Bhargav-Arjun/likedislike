@@ -50,7 +50,7 @@ why, on a single shareable profile. Built for a free-tier stack targeting
    bucket** on
 7. Database → Replication → enable replication on the `messages` table (this
    powers the live chat in `/messages/[id]`)
-8. Settings → API → copy `Project URL` and `anon public` key
+8. Settings → API → copy `Project URL` and `publishable` key
 
 ## 2. TMDB setup (free, for movie/series auto-fetch)
 
@@ -66,7 +66,7 @@ Copy `.env.example` to `.env.local` and fill in:
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=...
 TMDB_API_KEY=...
 ```
 
