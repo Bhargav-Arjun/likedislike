@@ -66,7 +66,7 @@ Copy `.env.example` to `.env.local` and fill in:
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=...
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
 TMDB_API_KEY=...
 ```
 
@@ -127,6 +127,36 @@ it in the SQL Editor. It adds:
   public page), matching how Instagram handles it
 - **Instagram-style header** — avatar on the left, likes/dislikes stacked
   to the right in a row, name below, matching the reference screenshots
+- **User-centric category voice** — defaults are now "Movies I like",
+  "Songs that play on my playlist", "Food I like to eat", "Places that make
+  me comfortable" instead of generic "Top rated ..." labels
+- **Notifications (owner only)** — a bell icon top-right of your own
+  profile opens a read-only feed of who related to or matched your items.
+  Real 1-to-1 messaging (the "discuss" icon on each item, and a general
+  message button visitors see) is intentionally a placeholder in Phase 1 —
+  tapping it shows a "Messaging launches in Phase 2" toast rather than
+  opening a chat. The `conversations`/`messages` tables and their
+  notification triggers are still in the schema so this can be turned on
+  later without a data model change.
+- **Floating "+" button** — moved to a fixed bottom-right position (thumb
+  zone, doesn't block content while scrolling) rather than inline next to
+  Edit profile. Easy to move back if you'd rather have it bottom-center or
+  in its original spot -- one class change in `app/[username]/page.tsx`.
+- **Faster navigation** — profile data now loads via parallel requests
+  instead of one-after-another, and the Edit Profile page is prefetched in
+  the background so tapping "Edit profile" feels instant
+- **Instagram-style empty state** — a brand-new profile (zero items added)
+  shows just the avatar and a "Create" button, matching Instagram's "Create
+  your first post" screen, instead of four empty category placeholders at
+  once. The floating "+" button only appears after the first item exists.
+- **Likes / Dislikes swipe tabs** — once a profile has items, the content
+  area becomes two swipeable tabs (thumbup / thumbdown icons in the tab bar,
+  in the same screen position Instagram uses for grid/reels/tagged). Swipe
+  left for dislikes, right for likes, or tap the icons directly. Categories
+  are filtered to the active tab.
+- **Notification previews** — the notifications feed now shows a small
+  thumbnail of the liked/matched item next to the text, similar to how
+  Instagram previews a story inside a DM reply.
 
 ## Notes on scope
 
