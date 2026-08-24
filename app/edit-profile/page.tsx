@@ -104,14 +104,14 @@ export default function EditProfile() {
 
       <div className="flex flex-col items-center mb-6">
         <label className="cursor-pointer">
-          <div className="w-18 h-18 rounded-full bg-neutral-200 border-2 border-black flex items-center justify-center overflow-hidden" style={{ width: 72, height: 72 }}>
+          <div className="w-18 h-18 rounded-full bg-neutral-200 flex items-center justify-center overflow-hidden" style={{ width: 72, height: 72 }}>
             {avatarPreview ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={avatarPreview} alt="" className="w-full h-full object-cover" />
             ) : (
-              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#A3A3A3" strokeWidth="1.8">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="#BDBDBD">
                 <circle cx="12" cy="8" r="4" />
-                <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
+                <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
               </svg>
             )}
           </div>
@@ -173,9 +173,15 @@ export default function EditProfile() {
       <button
         onClick={handleSave}
         disabled={saving}
-        className="w-full bg-brand text-white rounded-lg py-2.5 font-medium"
+        className="w-full bg-brand text-white rounded-lg py-2.5 font-medium flex items-center justify-center gap-2"
       >
-        {saving ? 'saving...' : 'Save'}
+        {saving && (
+          <svg width="14" height="14" viewBox="0 0 24 24" className="animate-spin">
+            <circle cx="12" cy="12" r="9" stroke="white" strokeWidth="3" fill="none" opacity="0.3" />
+            <path d="M21 12a9 9 0 00-9-9" stroke="white" strokeWidth="3" fill="none" strokeLinecap="round" />
+          </svg>
+        )}
+        Save
       </button>
       {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
     </main>
