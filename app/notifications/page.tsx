@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import EmptyIllustration from '@/components/EmptyIllustration';
 
 type NotificationRow = {
   id: string;
@@ -79,11 +80,16 @@ export default function NotificationsPage() {
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
         </button>
-        <p className="font-medium text-base">Notifications</p>
+        <p className="font-medium text-base">Messages</p>
       </div>
 
       {notifications.length === 0 ? (
-        <p className="text-sm text-neutral-400">Nothing yet -- when someone relates to or matches an item, it'll show up here.</p>
+        <div className="flex flex-col items-center pt-10">
+          <EmptyIllustration size={100} />
+          <p className="text-sm text-neutral-400 mt-4 text-center">
+            Nothing yet -- when someone relates to or matches an item, it'll show up here.
+          </p>
+        </div>
       ) : (
         <div className="flex flex-col gap-2">
           {notifications.map((n) => (
@@ -108,4 +114,3 @@ export default function NotificationsPage() {
     </main>
   );
 }
-
