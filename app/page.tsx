@@ -55,7 +55,7 @@ export default function AuthPage() {
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-6">
-      <h1 className="text-2xl font-medium mb-1">GetMe</h1>
+      <h1 className="text-2xl font-medium mb-1">Getmee</h1>
       <p className="text-neutral-400 text-sm mb-6">No need to ask. It's all right here.</p>
 
       <div className="flex gap-1 mb-6 bg-neutral-100 rounded-lg p-1">
