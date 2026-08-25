@@ -1,4 +1,4 @@
-# likedislike — Phase 1
+  # likedislike — Phase 1
 
 Your taste, one link. Movies, series, songs, food, places — what you like and
 why, on a single shareable profile. Built for a free-tier stack targeting
@@ -157,6 +157,29 @@ it in the SQL Editor. It adds:
 - **Notification previews** — the notifications feed now shows a small
   thumbnail of the liked/matched item next to the text, similar to how
   Instagram previews a story inside a DM reply.
+
+## Fixes from the latest round
+
+- **Swipe bug fixed** — swiping Dislikes -> Likes wasn't registering
+  because the swipeable area shrank to almost nothing when a tab had no
+  items. It now has a fixed minimum height so swipes work consistently
+  both directions regardless of content.
+- **Tab bar always visible** — the Likes/Dislikes icon tabs now show even
+  on a brand-new profile with nothing added yet (previously they only
+  appeared once an item existed), so the swipe structure is visible from
+  the start. They're neutral (no green/red highlight) until there's
+  actually something to show.
+- **Decorative empty-state graphic** — the empty items section and the
+  empty Messages screen now show a colorful illustration (`EmptyIllustration`
+  component) instead of duplicating the user's own profile photo.
+- **"Messages" screen** — renamed from Notifications to Messages
+  (`app/messages/page.tsx`) since that's the mental model requested: shows
+  who liked/matched your items with a small preview, no typing/reply --
+  real chat is still Phase 2.
+- **Note length raised to 100 characters** (was 60) -- both in the Add
+  Item form and the database constraint (see MIGRATION 4 in schema.sql).
+- **Branding matches the domain** -- "GetMe" renamed to "Getmee" throughout
+  (sign-in screen, page title, footer) to match `getmee.vercel.app`.
 
 ## Notes on scope
 
