@@ -148,7 +148,7 @@ export default function AddItemSheet({
         title,
         subtitle: selected?.subtitle || null,
         image_url: imageUrl,
-        why_note: note.slice(0, 60),
+        why_note: note.slice(0, 100),
         stance,
         rating: showRating ? rating : null,
         external_source: selected?.source || 'manual',
@@ -298,12 +298,12 @@ export default function AddItemSheet({
             <label className="text-xs text-neutral-500">Why ({promptHint})</label>
             <textarea
               value={note}
-              onChange={(e) => setNote(e.target.value.slice(0, 60))}
-              maxLength={60}
+              onChange={(e) => setNote(e.target.value.slice(0, 100))}
+              maxLength={100}
               rows={2}
               className="w-full border border-neutral-300 rounded-lg px-3 py-2 mt-1 mb-1"
             />
-            <p className="text-[11px] text-neutral-400 text-right mb-3">{note.length}/60</p>
+            <p className="text-[11px] text-neutral-400 text-right mb-3">{note.length}/100</p>
 
             <label className="text-xs text-neutral-500 block mb-1">Your take</label>
             <div className="flex gap-2 mb-4">
