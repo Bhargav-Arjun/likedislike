@@ -18,6 +18,8 @@ drop table if exists profiles cascade;
 
 -- Run this entire file in Supabase SQL Editor (Project -> SQL Editor -> New query)
 
+-- Run this entire file in Supabase SQL Editor (Project -> SQL Editor -> New query)
+
 -- ============ PROFILES ============
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -56,7 +58,7 @@ create table items (
   title text not null,
   subtitle text,
   image_url text,
-  why_note text check (char_length(why_note) <= 60),
+  why_note text check (char_length(why_note) <= 100),
   stance text not null check (stance in ('like', 'dislike')),
   rating numeric(2,1) check (rating >= 0 and rating <= 5 and rating * 2 = floor(rating * 2)), -- half-star steps
   external_source text, -- 'tmdb' | 'itunes' | 'manual'
@@ -205,9 +207,9 @@ begin
 
   insert into public.categories (profile_id, name, type, item_limit, sort_order) values
     (new_profile_id, 'Movies I like', 'movies_series', 20, 0),
-    (new_profile_id, 'Songs I listen', 'songs', 15, 1),
-    (new_profile_id, 'I love food', 'food', 10, 2),
-    (new_profile_id, 'Best places to visit', 'places', 10, 3);
+    (new_profile_id, 'Songs that play on my playlist', 'songs', 15, 1),
+    (new_profile_id, 'Food I like to eat', 'food', 10, 2),
+    (new_profile_id, 'Places that make me comfortable', 'places', 10, 3);
 
   return new;
 end;
@@ -310,4 +312,12 @@ create policy "owner update item images" on storage.objects for update
 create policy "owner delete item images" on storage.objects for delete
   using (bucket_id = 'item-images' and auth.uid()::text = (storage.foldername(name))[1]);
 
+-- ============ MIGRATION 3: friendlier, user-centric category names ============
+update categories set name = 'Songs that play on my playlist' where name in ('Top rated songs', 'Songs I listen');
+update categories set name = 'Food I like to eat' where name in ('Top rated food', 'I love food');
+update categories set name = 'Places that make me comfortable' where name in ('Best places', 'Best places to visit');
+
+-- ============ MIGRATION 4: raise the "why" note limit from 60 to 100 chars ============
+alter table items drop constraint if exists items_why_note_check;
+alter table items add constraint items_why_note_check check (char_length(why_note) <= 100);
 
