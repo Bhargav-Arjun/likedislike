@@ -2,8 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase, Profile, Category, CategoryWithItems, Item } from '@/lib/supabase';
-import SocialIcons from '@/components/SocialIcons';
+import { supabase, Profile, Category, CategoryWithItems, Item, categoryTagSlug, getOrCreateConversation, getMyConnectId } from '@/lib/supabase';
 import ItemCard from '@/components/ItemCard';
 import AddItemSheet from '@/components/AddItemSheet';
 import EmptyIllustration from '@/components/EmptyIllustration';
@@ -22,6 +21,8 @@ export default function ProfilePage({ params }: { params: { username: string } }
   const [deleting, setDeleting] = useState(false);
   const [phase2Toast, setPhase2Toast] = useState(false);
   const [activeTab, setActiveTab] = useState<'like' | 'dislike'>('like');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [myConnectId, setMyConnectId] = useState<string | null>(null);
   const touchStartX = useRef<number | null>(null);
 
   function showPhase2Toast() {
@@ -92,11 +93,31 @@ export default function ProfilePage({ params }: { params: { username: string } }
   }, [router]);
 
   const isOwner = !!currentUserId && !!profile && currentUserId === profile.id;
+
+  useEffect(() => {
+    if (drawerOpen && isOwner && !myConnectId) {
+      getMyConnectId().then(setMyConnectId);
+    }
+  }, [drawerOpen, isOwner, myConnectId]);
   const canInteract = !!currentUserId;
 
   const totalLikes = categories.reduce((sum, c) => sum + c.items.filter((i) => i.stance === 'like').length, 0);
   const totalDislikes = categories.reduce((sum, c) => sum + c.items.filter((i) => i.stance === 'dislike').length, 0);
   const totalItems = totalLikes + totalDislikes;
+
+  // Category names read positively ("Movies I like") -- fine on the Likes tab,
+  // but shown as-is above a disliked item it reads backwards. Flip the label
+  // for display only; the stored category name never changes.
+  function categoryLabel(cat: Category) {
+    if (activeTab === 'like' || cat.type === 'custom') return cat.name;
+    const dislikeLabel: Record<string, string> = {
+      movies_series: "Movies I don't like",
+      songs: "Songs I don't like",
+      food: "Food I don't like",
+      places: "Places I don't like",
+    };
+    return dislikeLabel[cat.type] || cat.name;
+  }
 
   function handleTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.touches[0].clientX;
@@ -134,11 +155,17 @@ export default function ProfilePage({ params }: { params: { username: string } }
     setSheetOpen(true);
   }
 
-  function handleDiscuss(item: any) {
-    // Real 1-to-1 messaging is held back for Phase 2. Heart reactions still
-    // notify the owner (see handleReact), so "someone liked this" signal
-    // isn't lost -- only open-ended chat is deferred.
-    showPhase2Toast();
+  async function handleDiscuss(item: any) {
+    if (!currentUserId || !profile) return;
+    if (currentUserId === profile.id) return; // can't message yourself
+    try {
+      const convo = await getOrCreateConversation(currentUserId, profile.id);
+      router.push(`/chats/${convo.id}`);
+    } catch (err: any) {
+      // e.g. blocked -- surface as the same lightweight toast pattern used elsewhere
+      setPhase2Toast(true);
+      setTimeout(() => setPhase2Toast(false), 2200);
+    }
   }
 
   async function handleRatingChange(item: any, rating: number) {
@@ -176,96 +203,190 @@ export default function ProfilePage({ params }: { params: { username: string } }
   const myCategories = isOwner ? categories : visitorCategories;
 
   return (
-    <main className="min-h-screen px-5 py-6 relative">
-      {!isOwner && currentUserId && (
+    <main className="min-h-screen relative">
+      {/* Top bar -- X layout: small avatar left (opens drawer), app icon center, bell/message right */}
+      <div className="flex items-center justify-between px-4 py-3 sticky top-0 bg-white z-30 border-b border-neutral-100">
         <button
-          onClick={showPhase2Toast}
-          aria-label="Message"
-          className="absolute top-6 right-5 w-9 h-9 rounded-full bg-neutral-100 flex items-center justify-center"
+          onClick={() => setDrawerOpen(true)}
+          aria-label="Profile menu"
+          className="w-9 h-9 rounded-full bg-neutral-200 overflow-hidden flex items-center justify-center flex-shrink-0 border-none p-0"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="1.8">
-            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-          </svg>
-        </button>
-      )}
-
-      {isOwner && (
-        <button
-          onClick={() => router.push('/messages')}
-          aria-label="Messages"
-          className="absolute top-6 right-5 w-9 h-9 rounded-full bg-neutral-100 flex items-center justify-center"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="1.8">
-            <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-            <path d="M13.7 21a2 2 0 01-3.4 0" />
-          </svg>
-        </button>
-      )}
-
-      <div className="flex items-center gap-5 mb-3">
-        <div className="w-20 h-20 rounded-full bg-neutral-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
           {profile.avatar_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={profile.avatar_url} alt={profile.display_name} className="w-full h-full object-cover" />
           ) : (
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="#BDBDBD">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="#8E8E8E">
               <circle cx="12" cy="8" r="4" />
-              <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+              <path d="M4 21c0-4.5 4-7 8-7s8 2.5 8 7" />
             </svg>
           )}
-        </div>
-        <div className="flex flex-1 justify-around">
-          <div className="flex flex-col items-center">
-            <span className="font-semibold text-base">{totalLikes}</span>
-            <span className="text-xs text-neutral-500">likes</span>
-          </div>
-          <div className="flex flex-col items-center">
-            <span className="font-semibold text-base">{totalDislikes}</span>
-            <span className="text-xs text-neutral-500">dislikes</span>
-          </div>
+        </button>
+
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/icon.png" alt="iSpace" className="w-8 h-8 rounded-lg object-cover" />
+
+        <div className="w-9 h-9 flex items-center justify-center flex-shrink-0">
+          {isOwner && (
+            <button
+              onClick={() => router.push('/messages')}
+              aria-label="Messages"
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-transparent border-none"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1D9BF0" strokeWidth="1.8">
+                <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.7 21a2 2 0 01-3.4 0" />
+              </svg>
+            </button>
+          )}
+          {!isOwner && currentUserId && (
+            <button
+              onClick={() => handleDiscuss(null)}
+              aria-label="Message"
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-transparent border-none"
+            >
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#1D9BF0" strokeWidth="1.8">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
-      <p className="font-medium text-base mb-3">{profile.display_name}</p>
-
-      <SocialIcons profile={profile} />
-
-      {isOwner && (
-        <button
-          onClick={() => router.push('/edit-profile')}
-          className="w-full bg-brand text-white rounded-lg py-2 text-sm font-medium mb-5"
+      {/* Drawer -- full-height side panel from the avatar, matching X's real side-menu (not a small floating card) */}
+      {drawerOpen && (
+        <div
+          className="fixed inset-0 z-40 flex"
+          style={{ background: 'rgba(0,0,0,0.35)' }}
+          onClick={() => setDrawerOpen(false)}
         >
-          Edit profile
-        </button>
+          <div
+            className="h-full bg-white shadow-xl p-5"
+            style={{ width: '82%', maxWidth: 320 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setDrawerOpen(false)}
+              aria-label="Close"
+              className="w-16 h-16 rounded-full bg-neutral-200 overflow-hidden flex items-center justify-center border-none p-0 mb-3"
+            >
+              {profile.avatar_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={profile.avatar_url} alt={profile.display_name} className="w-full h-full object-cover" />
+              ) : (
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="#8E8E8E">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 21c0-4.5 4-7 8-7s8 2.5 8 7" />
+                </svg>
+              )}
+            </button>
+            <p className="font-bold text-[17px]" style={{ color: '#0F1419' }}>
+              {profile.display_name}
+            </p>
+            <p className="text-[14px] text-neutral-500 mb-5">@{profile.username}</p>
+
+            {isOwner && myConnectId && (
+              <p className="text-[13px] text-neutral-500 mb-4 -mt-3">
+                Connect ID: <span className="font-bold" style={{ color: '#0F1419' }}>{myConnectId}</span>
+              </p>
+            )}
+
+            <button
+              onClick={() => {
+                setDrawerOpen(false);
+                router.push('/edit-profile');
+              }}
+              className="w-full text-left font-bold text-[16px] py-3 border-t border-neutral-100 bg-transparent border-none flex items-center gap-3"
+              style={{ color: '#0F1419' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F1419" strokeWidth="1.8">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 21c0-4.5 4-7 8-7s8 2.5 8 7" />
+              </svg>
+              Profile
+            </button>
+
+            {isOwner && (
+              <>
+                <button
+                  onClick={() => {
+                    setDrawerOpen(false);
+                    router.push('/connect');
+                  }}
+                  className="w-full text-left font-bold text-[16px] py-3 border-t border-neutral-100 bg-transparent border-none flex items-center gap-3"
+                  style={{ color: '#0F1419' }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F1419" strokeWidth="1.8">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="M21 21l-4.3-4.3" />
+                  </svg>
+                  Find people
+                </button>
+                <button
+                  onClick={() => {
+                    setDrawerOpen(false);
+                    router.push('/chats');
+                  }}
+                  className="w-full text-left font-bold text-[16px] py-3 border-t border-neutral-100 bg-transparent border-none flex items-center gap-3"
+                  style={{ color: '#0F1419' }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F1419" strokeWidth="1.8">
+                    <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.7 21a2 2 0 01-3.4 0" />
+                  </svg>
+                  Chats
+                </button>
+                <button
+                  onClick={() => {
+                    setDrawerOpen(false);
+                    router.push('/nearby');
+                  }}
+                  className="w-full text-left font-bold text-[16px] py-3 border-t border-neutral-100 bg-transparent border-none flex items-center gap-3"
+                  style={{ color: '#0F1419' }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F1419" strokeWidth="1.8">
+                    <path d="M12 21s-7-6.5-7-11a7 7 0 0114 0c0 4.5-7 11-7 11z" />
+                    <circle cx="12" cy="10" r="2.5" />
+                  </svg>
+                  Nearby
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
-      <div className="flex border-b border-neutral-200 mb-4">
+      <div className="flex px-2 mt-1">
         <button
           onClick={() => setActiveTab('like')}
-          className="flex-1 flex items-center justify-center py-2.5 bg-transparent border-none"
-          style={{ borderBottom: activeTab === 'like' && totalItems > 0 ? '2px solid #16A34A' : '2px solid transparent' }}
-          aria-label="Likes"
+          className="flex-1 flex items-center justify-center py-3.5 bg-transparent border-none"
+          style={{ borderBottom: activeTab === 'like' ? '3px solid #1D9BF0' : '3px solid transparent' }}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill={activeTab === 'like' && totalItems > 0 ? '#16A34A' : 'none'} stroke={activeTab === 'like' && totalItems > 0 ? '#16A34A' : '#A3A3A3'} strokeWidth="1.8">
-            <path d="M2 21h2a1 1 0 001-1v-9a1 1 0 00-1-1H2v11zM22 10.5A2.5 2.5 0 0019.5 8H14l.9-4.4c.1-.5 0-1-.3-1.4A2 2 0 0013 1L7 8.5V21h11a2 2 0 002-1.6l2-7.5v-1.4z" />
-          </svg>
+          <span
+            className="text-[15px]"
+            style={{ color: activeTab === 'like' ? '#0F1419' : '#536471', fontWeight: activeTab === 'like' ? 800 : 500 }}
+          >
+            Likes
+          </span>
         </button>
         <button
           onClick={() => setActiveTab('dislike')}
-          className="flex-1 flex items-center justify-center py-2.5 bg-transparent border-none"
-          style={{ borderBottom: activeTab === 'dislike' && totalItems > 0 ? '2px solid #DC2626' : '2px solid transparent' }}
-          aria-label="Dislikes"
+          className="flex-1 flex items-center justify-center py-3.5 bg-transparent border-none"
+          style={{ borderBottom: activeTab === 'dislike' ? '3px solid #1D9BF0' : '3px solid transparent' }}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill={activeTab === 'dislike' && totalItems > 0 ? '#DC2626' : 'none'} stroke={activeTab === 'dislike' && totalItems > 0 ? '#DC2626' : '#A3A3A3'} strokeWidth="1.8">
-            <path d="M2 3h2a1 1 0 011 1v9a1 1 0 01-1 1H2V3zM22 13.5A2.5 2.5 0 0019.5 16H14l.9 4.4c.1.5 0 1-.3 1.4A2 2 0 0113 23L7 15.5V3h11a2 2 0 012 1.6l2 7.5v1.4z" />
-          </svg>
+          <span
+            className="text-[15px]"
+            style={{ color: activeTab === 'dislike' ? '#0F1419' : '#536471', fontWeight: activeTab === 'dislike' ? 800 : 500 }}
+          >
+            Dislikes
+          </span>
         </button>
       </div>
+
 
       {/* min-h ensures the swipeable area covers the rest of the screen even when
           the active tab has no items -- otherwise the touch area collapses to
           almost nothing and swipes below it are never detected. */}
-      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="min-h-[50vh]">
+      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="min-h-[50vh] px-5 pt-2">
         {(() => {
           const tabHasAnyItems = categories.some((c) => c.items.some((i) => i.stance === activeTab));
 
@@ -275,12 +396,12 @@ export default function ProfilePage({ params }: { params: { username: string } }
                 <EmptyIllustration size={110} />
                 {isOwner ? (
                   <>
-                    <p className="text-sm font-medium mt-4 mb-4">
+                    <p className="text-sm font-medium mt-4 mb-2 text-neutral-800">
                       {activeTab === 'like' ? 'Nothing added yet' : 'No dislikes yet'}
                     </p>
                     {activeTab === 'dislike' && (
-                      <p className="text-xs text-neutral-400 mb-4 -mt-2">
-                        Not everything's a hit -- add something you didn't vibe with
+                      <p className="text-[13px] text-neutral-400 mb-4 text-center leading-relaxed max-w-[240px]">
+                        Not everything's a hit — add something you didn't vibe with
                       </p>
                     )}
                     <button
@@ -307,7 +428,7 @@ export default function ProfilePage({ params }: { params: { username: string } }
             return (
               <section key={cat.id} className="mb-5">
                 <div className="flex justify-between items-baseline mb-2">
-                  <p className="text-sm font-medium">{cat.name}</p>
+                  <p className="text-sm font-medium">{categoryLabel(cat)}</p>
                   <p className="text-xs text-neutral-400">{filteredItems.length}</p>
                 </div>
                 <div className="flex flex-col gap-2">
@@ -316,6 +437,10 @@ export default function ProfilePage({ params }: { params: { username: string } }
                       key={item.id}
                       item={item as any}
                       categoryType={cat.type}
+                      categoryTag={categoryTagSlug(cat)}
+                      avatarUrl={profile.avatar_url}
+                      displayName={profile.display_name}
+                      username={profile.username}
                       isOwner={isOwner}
                       canInteract={canInteract && !isOwner}
                       onReact={handleReact}
@@ -323,6 +448,7 @@ export default function ProfilePage({ params }: { params: { username: string } }
                       onDiscuss={handleDiscuss}
                       onRatingChange={handleRatingChange}
                       onLongPress={(i) => isOwner && setDeleteTarget(i)}
+                      onDelete={(i) => setDeleteTarget(i)}
                     />
                   ))}
                 </div>
@@ -363,6 +489,7 @@ export default function ProfilePage({ params }: { params: { username: string } }
       {sheetOpen && (
         <AddItemSheet
           categories={myCategories}
+          defaultStance={matchContext ? matchContext.stance : activeTab}
           prefill={matchContext ? { title: matchContext.title, subtitle: matchContext.subtitle || undefined, image_url: matchContext.image_url } : undefined}
           onClose={() => {
             setSheetOpen(false);
@@ -372,7 +499,7 @@ export default function ProfilePage({ params }: { params: { username: string } }
         />
       )}
 
-      <p className="text-center text-[11px] text-neutral-300 mt-8">made with Getmee</p>
+      <p className="text-center text-[11px] text-neutral-300 mt-8 px-5">made with iSpace</p>
 
       {isOwner && totalItems > 0 && (
         <button
