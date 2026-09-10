@@ -1,4 +1,4 @@
-  # likedislike — Phase 1
+# likedislike — Phase 1
 
 Your taste, one link. Movies, series, songs, food, places — what you like and
 why, on a single shareable profile. Built for a free-tier stack targeting
@@ -181,6 +181,96 @@ it in the SQL Editor. It adds:
 - **Branding matches the domain** -- "GetMe" renamed to "Getmee" throughout
   (sign-in screen, page title, footer) to match `getmee.vercel.app`.
 
+## X-inspired redesign (UI only -- no functionality changed)
+
+The home/profile screen (`app/[username]/page.tsx`) and item cards were
+restyled to match X's layout, fonts, and colors:
+
+- **Top bar** -- small avatar top-left (tap to open a half-open drawer with
+  your name, social links incl. **Threads**, and a "Profile" link to Edit
+  Profile), "iSpace" wordmark centered, notification/message icon top-right
+- **For You / Following tabs** -- text tabs with a blue underline on the
+  active one, replacing the old thumbup/thumbdown icon tabs. Functionally
+  identical: For You = Likes, Following = Dislikes, same swipe gesture.
+- **Post-card items** -- small square thumbnail (not a big hero image),
+  blue `@tag` above the title (`@movies`, `@songs`, `@food`, `@trips`, or a
+  slugified custom category name), bold black title, X-style icon row
+  (heart / repost / reply / share) at the bottom of each card
+- **Share button added** -- uses the native share sheet where available,
+  falls back to copying the link
+- **Short video clips (10s max)** -- the Camera/Gallery upload buttons now
+  accept video too; anything over 10 seconds is rejected client-side before
+  upload. Item cards auto-detect and render video vs. image.
+- App renamed to **iSpace** everywhere; ready for a custom icon whenever
+  you send one over.
+
+No backend/data model changes were needed for the visual parts of this
+pass. Only genuinely new pieces: the `threads` profile column (MIGRATION 5
+in schema.sql) and video support (reuses the existing `item-images` bucket
+and `image_url` column -- no schema change needed there).
+
+## 30-second song preview playback
+
+Songs added via auto-fetch now carry a real playable clip:
+
+- iTunes Search API returns a `previewUrl` for most tracks (~90 seconds --
+  that's the API's own limit; there's no free/legal way to get the full
+  song). When adding a song, a small clip-picker appears: play button +
+  slider to choose which 30-second window of that preview to use.
+- That choice is saved as `audio_preview_url` + `preview_start_seconds`
+  (MIGRATION 6 in schema.sql).
+- On the item card, the poster image gets a play/pause button overlaid on
+  it (Spotify/Instagram-style). Only one song plays at a time across the
+  whole feed -- starting one automatically pauses any other that's playing.
+- Manually-added songs (no auto-fetch match) simply won't have a play
+  button, since there's no audio source for them.
+
+## Fixed: infinite loading / URL flicker on sign-in
+
+If a logged-in account somehow ended up without a matching row in
+`profiles` (for example, if a profile row got deleted while the auth
+account stayed, or a very early signup happened before the auto-create
+trigger existed), `/` and `/dashboard` used to redirect back and forth to
+each other forever -- showing as a stuck "loading..." screen with the URL
+flickering between the two.
+
+Both pages now try to **self-heal**: if no profile row exists, they create
+one directly (mirroring what the signup trigger normally does) instead of
+redirecting. If that also fails -- almost always a sign the RLS policies
+from `schema.sql` aren't applied -- you'll see a clear "Couldn't set up
+your profile" message with a retry button instead of an endless spinner.
+
+## Fixed: ugly/long profile URL
+
+The username used in the URL was being generated as a random string at
+signup (`userab12cd34`), completely disconnected from the person's actual
+name -- that's why shared links looked long and ugly. Saving your name in
+Edit Profile now auto-generates a clean slug from it (e.g. "Arjun Bhargav"
+-> `/arjunbhargav`, with a number appended if that's already taken). This
+only happens once, the first time -- once your URL has been customized it
+won't change again on later edits, so a link you've already shared never
+breaks.
+
+**Reminder on sharing the right link:** the URL to put in your Instagram
+bio is `getmee.vercel.app/yourusername` -- not a `vercel.com/...` link.
+Links starting with `vercel.com` are Vercel's own dashboard pages (for
+managing the deployment) and were never meant to be shared publicly.
+
+## Other fixes in this round
+
+- **Camera + Gallery, explicitly** — the photo upload step for
+  food/places/custom items (anything without auto-fetch) now shows two
+  separate buttons instead of one generic file picker: **Camera** opens
+  the device camera directly, **Gallery** opens the photo library.
+- **Dislikes now have their own defaults** — category headings flip to
+  read naturally on the Dislikes tab ("Movies I don't like" instead of
+  "Movies I like"), the note field's placeholder hint changes to a
+  dislike-flavored prompt, and both "+" buttons now default to Dislike
+  when you're already viewing the Dislikes tab -- previously they always
+  defaulted to Like regardless of which tab you were on.
+- **Cleaned up the empty-Dislikes message** — better spacing, color,
+  and line length so it reads properly instead of looking cramped.
+
 ## Notes on scope
 
 - Match "percentage compatibility" between two profiles was discussed but
@@ -194,3 +284,159 @@ it in the SQL Editor. It adds:
   match, star editing) simple to wire up correctly; if SEO/link-preview
   quality becomes important later, this page can be converted to a
   server component with a client wrapper for the interactive parts.
+
+## Major redesign: X (Twitter)-style UI + Home feed
+
+This round changes the app's *visual language* to match X — layout, fonts,
+colors — while keeping every existing feature (reactions, match, star
+ratings, notifications, categories) working the same way underneath.
+
+- **New landing experience: `/home`** — after logging in, you now land on
+  a Home feed (matching X's own Home) instead of going straight to your
+  profile page. Top bar: your avatar (opens a slide-out drawer) on the
+  left, "iSpace" wordmark centered, notifications bell on the right.
+- **Profile drawer** — tapping the avatar slides open a half-screen panel
+  (exactly like X's own account drawer) showing your avatar, name,
+  `@username`, social icons (Threads added), and a "Profile" link. Tapping
+  "Profile" opens the full Edit Profile page; saving there now redirects
+  back to `/home`.
+- **Posts, not cards** — every item (movie, song, food, place, or a custom
+  category) now renders like an X post: a small thumbnail, a blue
+  `@category` tag, bold black title, then the note text, then an X-style
+  action row (relate / match / discuss) spaced evenly under the post.
+- **For You / Following tabs on Home**, swipeable exactly like X's own
+  tabs. **For You** shows everything you've added, likes and dislikes
+  together (each post already carries its own like/dislike badge, so
+  there's no separate sub-tab needed here).
+- **"Following" is a placeholder in this phase** — see the note below on
+  why, and what it would take to make it real.
+- The existing per-profile page (`/[username]`, what anyone sees when they
+  open your shared link) is unchanged in structure — same Likes/Dislikes
+  swipe tabs as before — just restyled with the new Post look.
+
+### Why "Following" isn't functional yet
+
+A Following tab needs an actual follow/social-graph feature (a table
+tracking who follows whom, plus UI to follow people, plus a feed query
+that only pulls items from people you follow) — that's a new feature, not
+a UI change, so building it silently as a UI-only reskin would mean
+either faking data or leaving it broken. It's wired up as a clear "coming
+in Phase 2" placeholder for now, consistent with how messaging is handled.
+
+### Adding your icon
+
+Once you have the iSpace icon file, drop it into the project root as
+`app/icon.png` (any square PNG, 512x512 recommended) — Next.js
+auto-detects that filename and uses it as the site's favicon/app icon with
+no code changes needed.
+
+### Not done in this round
+
+- **Short video clips on posts** (<=10s) -- this needs a new database
+  column, upload/compression handling, and duration validation, and was
+  intentionally left out of this pass to avoid rushing it. Flagging it so
+  it's not forgotten -- happy to build it next.
+
+## Connect ID + real 1-to-1 messaging
+
+A new feature layered on top of the existing app -- nothing already built
+was redesigned or removed.
+
+**Scope decisions made with you before building:**
+- Identity stays on the existing email+password auth. Real mobile OTP was
+  the spec's stated primary method, but it needs a paid SMS provider
+  (Twilio or similar) which doesn't fit this project's zero-budget
+  free-tier approach. The `phone` field already on profiles can still be
+  filled in as a contact link -- it's just not a verification gate.
+- Premium is a plain `premium_status` boolean on profiles, toggled manually
+  in the Supabase table editor for now. There's no payment flow -- that's
+  a separate, much larger feature if you want it later.
+
+**What's built (MIGRATION 7 in schema.sql):**
+
+- **Connect ID** -- every profile gets a permanent 5-character code
+  (A-Z0-9, at least one letter, e.g. `K24M8`), generated server-side and
+  guaranteed unique via a DB index. Shown in the profile drawer and on
+  Edit Profile, read-only.
+- **Anti-enumeration** -- direct SQL access to the `connect_id` column is
+  revoked for every role except the table owner. The *only* way to look
+  someone up by their code is the rate-limited `search_connect_id()`
+  function (max 15 searches/minute/user, enforced in the database, not the
+  frontend) -- reachable from the app at `/connect`.
+- **Messaging reuses the existing `conversations`/`messages` tables**
+  (previously only used for the disabled per-item "discuss" button) rather
+  than creating new ones, per the spec's own instruction to extend instead
+  of duplicate. One conversation per pair of users is enforced by a unique
+  index, regardless of how it started.
+- **5-message limit, enforced in the database** -- a `BEFORE INSERT`
+  trigger on `messages` (not just a frontend check) blocks a 6th message
+  from the person who started the conversation until the other person
+  replies. A premium account skips the limit. The same trigger flips the
+  conversation to `accepted` automatically the moment the recipient sends
+  anything back.
+- **Blocks and reports** -- new `blocks` and `reports` tables. A block in
+  either direction freezes messaging immediately (checked inside the same
+  trigger, so it can't be bypassed even by a premium account).
+- **General send-rate limiting** -- max 20 messages/minute/sender across
+  all their conversations, also enforced in the trigger.
+- **Disappearing chat** -- "Exit conversation" (via the `⋮` menu in a chat
+  thread) calls a server-side function that deletes the message content
+  and marks the conversation `exited`, keeping just enough of the row for
+  block/report history. Navigating back or closing the tab does **not**
+  delete anything -- only the explicit exit action does.
+- New routes: `/connect` (search), `/chats` (conversation list), and
+  `/chats/[id]` (the thread itself, with live updates via Supabase
+  Realtime, the message-count indicator, exit/block/report).
+- The existing item-level "Message" icon and per-item "discuss" button
+  (previously showing a "Phase 2" placeholder toast) now open a real
+  conversation with that profile's owner.
+
+**One more setup step:** enable Realtime replication on the `conversations`
+table too (Database -> Replication), in addition to `messages` which the
+original discuss feature already needed -- this is what makes an incoming
+reply flip a chat from "pending" to "unlimited" live on screen without a
+refresh.
+
+## Nearby (opt-in, 1 km, computed on page-open)
+
+A new feature -- see who else on the app is within 1 km, right now.
+
+**Scope decisions made with you:**
+- **Off by default, opt-in only.** Nobody's location is touched until they
+  explicitly tap "Turn on Nearby". Turning it off clears the stored
+  coordinates immediately.
+- **1 km radius**, computed fresh each time the Nearby page opens -- no
+  background job runs on this stack, so there's no passive "you just
+  walked near someone" push notification. Opening the page is what
+  triggers the check.
+- Only the **latest** position is ever stored (no location history table),
+  and it's ignored for matching if it's more than 24h old.
+
+**What's built (MIGRATION 8 in schema.sql):**
+
+- `location_sharing_enabled`, `last_lat`, `last_lng`, `location_updated_at`
+  added to `profiles`. Raw coordinates are never selectable directly by
+  anyone (including the person themselves) via a normal query -- column
+  access is revoked, same anti-enumeration pattern as Connect ID. The only
+  way distance data leaves the database is through `find_nearby_users()`,
+  which returns a rounded distance in km, never coordinates.
+- Distance is plain Haversine math in SQL -- no PostGIS/earthdistance
+  extension needed.
+- Opening `/nearby` requests the browser's location once, updates your
+  stored position, then calls the matching function. A "Refresh" button
+  repeats this without leaving the page.
+- Each match also creates a row in the existing `notifications` table
+  (type `nearby`), deduped to once per 6 hours per pair so it doesn't spam
+  either person on every page reopen. It reveals who, matching the "open
+  their profile" flow you described -- likes/dislikes are already public,
+  and social links only show if that person has actually filled them in
+  (existing behavior, unchanged).
+- A "Nearby" entry was added to the profile drawer (both the shared
+  `ProfileDrawer.tsx` used by `/home`, and the equivalent panel in
+  `/[username]`), next to "Find people" and "Chats".
+
+**Also cleaned up:** the old `notify_on_message` trigger (left over from
+Phase 1, before `messages` was repurposed for real chat) was creating a
+notification for every single DM, cluttering the Messages/bell feed. It's
+dropped in this migration -- the `/chats` list already covers that job.
+
