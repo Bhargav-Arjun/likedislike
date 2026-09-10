@@ -1,19 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { supabase, Category, NOTE_PROMPTS } from '@/lib/supabase';
 
-type FetchResult = { id: string; title: string; subtitle: string; image_url: string | null; source: string };
+type FetchResult = { id: string; title: string; subtitle: string; image_url: string | null; preview_url?: string | null; source: string };
 
 export default function AddItemSheet({
   categories,
   defaultCategoryId,
+  defaultStance = 'like',
   prefill,
   onClose,
   onSaved,
 }: {
   categories: Category[];
   defaultCategoryId?: string;
+  defaultStance?: 'like' | 'dislike';
   prefill?: { title: string; subtitle?: string; image_url?: string | null };
   onClose: () => void;
   onSaved: (insertedItem: any) => void;
@@ -29,16 +31,64 @@ export default function AddItemSheet({
     prefill ? { id: 'prefill', title: prefill.title, subtitle: prefill.subtitle || '', image_url: prefill.image_url || null, source: 'manual' } : null
   );
   const [manualImage, setManualImage] = useState<File | null>(null);
+  const [manualImagePreview, setManualImagePreview] = useState<string | null>(null);
+  const [manualIsVideo, setManualIsVideo] = useState(false);
+  const [mediaError, setMediaError] = useState('');
   const [note, setNote] = useState('');
   const [rating, setRating] = useState(0);
-  const [stance, setStance] = useState<'like' | 'dislike'>('like');
+  const [stance, setStance] = useState<'like' | 'dislike'>(defaultStance);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // 30s clip picker for songs -- iTunes only gives us a ~90s preview clip
+  // (not the full track, no licensing for that on a free-tier stack), so
+  // the person picks their favorite 30s window within that preview.
+  const [clipStart, setClipStart] = useState(0);
+  const [clipDuration, setClipDuration] = useState(90);
+  const [clipPlaying, setClipPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  function playClipPreview() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (clipPlaying) {
+      audio.pause();
+      setClipPlaying(false);
+      return;
+    }
+    audio.currentTime = clipStart;
+    audio.play();
+    setClipPlaying(true);
+    const stopAt = clipStart + 30;
+    const check = () => {
+      if (!audio || audio.currentTime >= stopAt || audio.paused) {
+        audio.pause();
+        setClipPlaying(false);
+        audio.removeEventListener('timeupdate', check);
+      }
+    };
+    audio.addEventListener('timeupdate', check);
+  }
 
   const category = localCategories.find((c) => c.id === categoryId);
   const autoFetchable = category?.type === 'movies_series' || category?.type === 'songs';
   const showRating = category?.type === 'movies_series' || category?.type === 'food';
-  const promptHint = category ? NOTE_PROMPTS[category.type][0] : 'why this made the list...';
+  const promptHint = category ? NOTE_PROMPTS[category.type][stance === 'dislike' ? 1 : 0] : 'why this made the list...';
+
+  // Category names are stored positively ("Movies I like") since that's how
+  // they read on the Likes tab -- but showing that same label while adding a
+  // dislike would read backwards. This flips the wording for display only;
+  // the underlying category row and its name in the database don't change.
+  function categoryLabel(cat: Category) {
+    if (stance === 'like' || cat.type === 'custom') return cat.name;
+    const dislikeLabel: Record<string, string> = {
+      movies_series: "Movies I don't like",
+      songs: "Songs I don't like",
+      food: "Food I don't like",
+      places: "Places I don't like",
+    };
+    return dislikeLabel[cat.type] || cat.name;
+  }
 
   async function runSearch(q: string) {
     setQuery(q);
@@ -56,6 +106,33 @@ export default function AddItemSheet({
       setResults([]);
     }
     setSearching(false);
+  }
+
+  async function handleFileSelected(file: File | undefined) {
+    if (!file) return;
+    setMediaError('');
+
+    if (file.type.startsWith('video/')) {
+      // Short clips only (10s max) -- checked client-side by reading the
+      // video's own metadata before accepting it.
+      const duration = await new Promise<number>((resolve) => {
+        const videoEl = document.createElement('video');
+        videoEl.preload = 'metadata';
+        videoEl.onloadedmetadata = () => resolve(videoEl.duration);
+        videoEl.onerror = () => resolve(0);
+        videoEl.src = URL.createObjectURL(file);
+      });
+      if (duration > 10) {
+        setMediaError('Clips must be 10 seconds or shorter');
+        return;
+      }
+      setManualIsVideo(true);
+    } else {
+      setManualIsVideo(false);
+    }
+
+    setManualImage(file);
+    setManualImagePreview(URL.createObjectURL(file));
   }
 
   async function createCategory() {
@@ -153,6 +230,8 @@ export default function AddItemSheet({
         rating: showRating ? rating : null,
         external_source: selected?.source || 'manual',
         external_id: selected?.id !== 'prefill' ? selected?.id : null,
+        audio_preview_url: category?.type === 'songs' ? selected?.preview_url || null : null,
+        preview_start_seconds: category?.type === 'songs' && selected?.preview_url ? clipStart : null,
       })
       .select()
       .single();
@@ -196,7 +275,7 @@ export default function AddItemSheet({
             >
               {localCategories.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {categoryLabel(c)}
                 </option>
               ))}
               <option value="__new__">+ New category</option>
@@ -262,17 +341,99 @@ export default function AddItemSheet({
           <>
             {selected?.image_url && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={selected.image_url} alt="" className="w-16 h-16 rounded-lg object-cover mb-2" />
+              <img src={selected.image_url} alt="" className="w-full rounded-xl object-cover mb-2" style={{ aspectRatio: '16 / 9' }} />
+            )}
+
+            {category?.type === 'songs' && selected?.preview_url && (
+              <div className="bg-neutral-50 rounded-xl p-3 mb-3">
+                <audio
+                  ref={audioRef}
+                  src={selected.preview_url}
+                  onLoadedMetadata={(e) => {
+                    const d = e.currentTarget.duration || 90;
+                    setClipDuration(d);
+                    setClipStart((s) => Math.min(s, Math.max(0, d - 30)));
+                  }}
+                  className="hidden"
+                />
+                <p className="text-xs text-neutral-500 mb-2">Pick your 30s clip (from the available preview)</p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={playClipPreview}
+                    aria-label={clipPlaying ? 'Pause' : 'Play'}
+                    className="w-9 h-9 rounded-full bg-brand text-white flex items-center justify-center flex-shrink-0 border-none"
+                  >
+                    {clipPlaying ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+                        <rect x="6" y="4" width="4" height="16" />
+                        <rect x="14" y="4" width="4" height="16" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+                        <path d="M6 4l14 8-14 8z" />
+                      </svg>
+                    )}
+                  </button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(0, Math.floor(clipDuration - 30))}
+                    value={clipStart}
+                    onChange={(e) => {
+                      setClipStart(Number(e.target.value));
+                      if (audioRef.current) audioRef.current.pause();
+                      setClipPlaying(false);
+                    }}
+                    className="flex-1"
+                  />
+                </div>
+                <p className="text-[11px] text-neutral-400 mt-1">
+                  Playing {Math.round(clipStart)}s – {Math.round(clipStart + 30)}s of the preview
+                </p>
+              </div>
             )}
             {!autoFetchable && (
               <>
-                <label className="text-xs text-neutral-500">Photo</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setManualImage(e.target.files?.[0] || null)}
-                  className="w-full text-sm mt-1 mb-3"
-                />
+                <label className="text-xs text-neutral-500">Photo or video (max 10s)</label>
+                {manualImagePreview && (
+                  manualIsVideo ? (
+                    <video src={manualImagePreview} className="w-full rounded-xl object-cover mt-1 mb-2" style={{ aspectRatio: '16 / 9' }} muted playsInline />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={manualImagePreview} alt="" className="w-full rounded-xl object-cover mt-1 mb-2" style={{ aspectRatio: '16 / 9' }} />
+                  )
+                )}
+                {mediaError && <p className="text-red-500 text-xs mb-2">{mediaError}</p>}
+                <div className="flex gap-2 mt-1 mb-3">
+                  <label className="flex-1 flex items-center justify-center gap-1.5 border border-neutral-300 rounded-lg py-2 text-sm text-neutral-600 cursor-pointer">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <path d="M4 8a2 2 0 012-2h1.2a1 1 0 00.9-.55l.6-1.2A1 1 0 019.6 3.6h4.8a1 1 0 01.9.55l.6 1.2a1 1 0 00.9.55H18a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2z" />
+                      <circle cx="12" cy="13" r="3.5" />
+                    </svg>
+                    Camera
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => handleFileSelected(e.target.files?.[0])}
+                    />
+                  </label>
+                  <label className="flex-1 flex items-center justify-center gap-1.5 border border-neutral-300 rounded-lg py-2 text-sm text-neutral-600 cursor-pointer">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <rect x="3" y="4" width="18" height="16" rx="2" />
+                      <circle cx="8.5" cy="9.5" r="1.5" />
+                      <path d="M21 15l-5-5-9 9" />
+                    </svg>
+                    Gallery
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      className="hidden"
+                      onChange={(e) => handleFileSelected(e.target.files?.[0])}
+                    />
+                  </label>
+                </div>
               </>
             )}
             <label className="text-xs text-neutral-500">Title</label>
