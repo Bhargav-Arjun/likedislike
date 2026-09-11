@@ -440,3 +440,4 @@ Phase 1, before `messages` was repurposed for real chat) was creating a
 notification for every single DM, cluttering the Messages/bell feed. It's
 dropped in this migration -- the `/chats` list already covers that job.
 
+
