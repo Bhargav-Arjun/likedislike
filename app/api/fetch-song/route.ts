@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 
 // iTunes Search API is free and needs no API key or auth -- simplest reliable
@@ -19,6 +18,7 @@ export async function GET(req: NextRequest) {
     title: r.trackName,
     subtitle: r.artistName,
     image_url: r.artworkUrl100 ? r.artworkUrl100.replace('100x100', '400x400') : null,
+    preview_url: r.previewUrl || null,
     source: 'itunes',
   }));
 
