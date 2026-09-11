@@ -14,11 +14,7 @@ drop table if exists items cascade;
 drop table if exists categories cascade;
 drop table if exists profiles cascade;
 
-
-
 -- Run this entire file in Supabase SQL Editor (Project -> SQL Editor -> New query)
-
--- Run this -- Profiles: public read, owner write-- ============ AUTO-NOTIFY ON MESSAGE ============
 
 -- Run this entire file in Supabase SQL Editor (Project -> SQL Editor -> New query)
 
