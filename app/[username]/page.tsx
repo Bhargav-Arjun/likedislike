@@ -1,524 +1,307 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import { supabase, Profile, Category, CategoryWithItems, Item, categoryTagSlug, getOrCreateConversation, getMyConnectId } from '@/lib/supabase';
-import ItemCard from '@/components/ItemCard';
-import AddItemSheet from '@/components/AddItemSheet';
-import EmptyIllustration from '@/components/EmptyIllustration';
+import { useEffect, useRef, useState } from 'react';
+import StarRating from './StarRating';
+import { Item, CategoryType } from '@/lib/supabase';
 
-export default function ProfilePage({ params }: { params: { username: string } }) {
-  const router = useRouter();
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [categories, setCategories] = useState<CategoryWithItems[]>([]);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [matchContext, setMatchContext] = useState<Item | null>(null);
-  const [visitorCategories, setVisitorCategories] = useState<Category[]>([]);
-  const [deleteTarget, setDeleteTarget] = useState<Item | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [phase2Toast, setPhase2Toast] = useState(false);
-  const [activeTab, setActiveTab] = useState<'like' | 'dislike'>('like');
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [myConnectId, setMyConnectId] = useState<string | null>(null);
-  const touchStartX = useRef<number | null>(null);
+type ItemWithCounts = Item & {
+  reaction_count: number;
+  match_count: number;
+  user_reacted: boolean;
+};
 
-  function showPhase2Toast() {
-    setPhase2Toast(true);
-    setTimeout(() => setPhase2Toast(false), 2200);
-  }
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo`;
+  return `${Math.floor(months / 12)}y`;
+}
 
-  const load = useCallback(async () => {
-    // getSession() reads from local storage (instant) instead of getUser(),
-    // which makes a network round-trip to re-validate the token every time.
-    // Combined with fetching the profile in parallel, this noticeably cuts
-    // the "loading..." time on every page open.
-    const [sessionResult, profResult] = await Promise.all([
-      supabase.auth.getSession(),
-      supabase.from('profiles').select('*').eq('username', params.username).single(),
-    ]);
+export default function ItemCard({
+  item,
+  categoryType,
+  categoryTag,
+  avatarUrl,
+  displayName,
+  username,
+  isOwner,
+  canInteract,
+  onReact,
+  onMatch,
+  onDiscuss,
+  onRatingChange,
+  onLongPress,
+  onDelete,
+}: {
+  item: ItemWithCounts;
+  categoryType: CategoryType;
+  categoryTag: string;
+  avatarUrl: string | null;
+  displayName: string;
+  username: string;
+  isOwner: boolean;
+  canInteract: boolean;
+  onReact: (item: ItemWithCounts) => void;
+  onMatch: (item: ItemWithCounts) => void;
+  onDiscuss: (item: ItemWithCounts) => void;
+  onRatingChange?: (item: ItemWithCounts, rating: number) => void;
+  onLongPress?: (item: ItemWithCounts) => void;
+  onDelete?: (item: ItemWithCounts) => void;
+}) {
+  const showRating = categoryType === 'movies_series' || categoryType === 'food';
+  const isLike = item.stance === 'like';
+  const isVideo = item.image_url ? /\.(mp4|webm|mov|m4v)$/i.test(item.image_url) : false;
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [songPlaying, setSongPlaying] = useState(false);
 
-    setCurrentUserId(sessionResult.data.session?.user?.id || null);
+  // Only one song plays at a time across the whole feed -- when this card
+  // starts playing it announces itself, and every other card's effect below
+  // pauses itself in response.
+  useEffect(() => {
+    function handleOtherPlay(e: Event) {
+      const startedId = (e as CustomEvent).detail;
+      if (startedId !== item.id && audioRef.current) {
+        audioRef.current.pause();
+        setSongPlaying(false);
+      }
+    }
+    window.addEventListener('ispace-song-play', handleOtherPlay);
+    return () => window.removeEventListener('ispace-song-play', handleOtherPlay);
+  }, [item.id]);
 
-    const prof = profResult.data;
-    if (!prof) {
-      setNotFound(true);
-      setLoading(false);
+  function toggleSongPlay() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (songPlaying) {
+      audio.pause();
+      setSongPlaying(false);
       return;
     }
-    setProfile(prof);
-
-    const { data: cats } = await supabase
-      .from('categories')
-      .select('*, items(*)')
-      .eq('profile_id', prof.id)
-      .order('sort_order');
-
-    const allItemIds = (cats || []).flatMap((c: any) => c.items.map((i: Item) => i.id));
-
-    const [{ data: reactions }, { data: matches }] = allItemIds.length
-      ? await Promise.all([
-          supabase.from('item_reactions').select('item_id, reactor_id').in('item_id', allItemIds),
-          supabase.from('item_matches').select('source_item_id').in('source_item_id', allItemIds),
-        ])
-      : [{ data: [] }, { data: [] }];
-
-    const currentUserId = sessionResult.data.session?.user?.id;
-    const withCounts = (cats || []).map((c: any) => ({
-      ...c,
-      items: c.items
-        .sort((a: Item, b: Item) => a.sort_order - b.sort_order)
-        .map((item: Item) => ({
-          ...item,
-          reaction_count: (reactions || []).filter((r) => r.item_id === item.id).length,
-          match_count: (matches || []).filter((m) => m.source_item_id === item.id).length,
-          user_reacted: (reactions || []).some((r) => r.item_id === item.id && r.reactor_id === currentUserId),
-        })),
-    }));
-
-    setCategories(withCounts);
-    setLoading(false);
-  }, [params.username]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  // Prefetching this route means tapping "Edit profile" doesn't wait to fetch
-  // the page's JS bundle -- it's already warm, so the click feels instant.
-  useEffect(() => {
-    router.prefetch('/edit-profile');
-  }, [router]);
-
-  const isOwner = !!currentUserId && !!profile && currentUserId === profile.id;
-
-  useEffect(() => {
-    if (drawerOpen && isOwner && !myConnectId) {
-      getMyConnectId().then(setMyConnectId);
-    }
-  }, [drawerOpen, isOwner, myConnectId]);
-  const canInteract = !!currentUserId;
-
-  const totalLikes = categories.reduce((sum, c) => sum + c.items.filter((i) => i.stance === 'like').length, 0);
-  const totalDislikes = categories.reduce((sum, c) => sum + c.items.filter((i) => i.stance === 'dislike').length, 0);
-  const totalItems = totalLikes + totalDislikes;
-
-  // Category names read positively ("Movies I like") -- fine on the Likes tab,
-  // but shown as-is above a disliked item it reads backwards. Flip the label
-  // for display only; the stored category name never changes.
-  function categoryLabel(cat: Category) {
-    if (activeTab === 'like' || cat.type === 'custom') return cat.name;
-    const dislikeLabel: Record<string, string> = {
-      movies_series: "Movies I don't like",
-      songs: "Songs I don't like",
-      food: "Food I don't like",
-      places: "Places I don't like",
+    window.dispatchEvent(new CustomEvent('ispace-song-play', { detail: item.id }));
+    audio.currentTime = item.preview_start_seconds || 0;
+    audio.play();
+    setSongPlaying(true);
+    const stopAt = (item.preview_start_seconds || 0) + 30;
+    const check = () => {
+      if (!audio || audio.currentTime >= stopAt || audio.paused) {
+        audio.pause();
+        setSongPlaying(false);
+        audio.removeEventListener('timeupdate', check);
+      }
     };
-    return dislikeLabel[cat.type] || cat.name;
+    audio.addEventListener('timeupdate', check);
   }
 
-  function handleTouchStart(e: React.TouchEvent) {
-    touchStartX.current = e.touches[0].clientX;
+  function startPress() {
+    if (!isOwner || !onLongPress) return;
+    pressTimer.current = setTimeout(() => onLongPress(item), 550);
   }
-  function handleTouchEnd(e: React.TouchEvent) {
-    if (touchStartX.current === null) return;
-    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
-    touchStartX.current = null;
-    if (Math.abs(deltaX) < 50) return;
-    if (deltaX < 0) setActiveTab('dislike'); // swipe left -> dislikes
-    else setActiveTab('like'); // swipe right -> likes
+  function cancelPress() {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
   }
 
-  async function handleReact(item: any) {
-    if (!currentUserId) return;
-    if (item.user_reacted) {
-      await supabase.from('item_reactions').delete().eq('item_id', item.id).eq('reactor_id', currentUserId);
+  async function handleShare() {
+    const shareData = { title: item.title, text: `${item.title}${item.subtitle ? ' — ' + item.subtitle : ''}`, url: window.location.href };
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch {
+        /* user cancelled -- ignore */
+      }
     } else {
-      await supabase.from('item_reactions').insert({ item_id: item.id, reactor_id: currentUserId });
-    }
-    load();
-  }
-
-  async function handleMatch(item: any) {
-    if (!currentUserId) return;
-    if (!isOwner && visitorCategories.length === 0) {
-      const { data: cats } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('profile_id', currentUserId)
-        .order('sort_order');
-      setVisitorCategories(cats || []);
-    }
-    setMatchContext(item);
-    setSheetOpen(true);
-  }
-
-  async function handleDiscuss(item: any) {
-    if (!currentUserId || !profile) return;
-    if (currentUserId === profile.id) return; // can't message yourself
-    try {
-      const convo = await getOrCreateConversation(currentUserId, profile.id);
-      router.push(`/chats/${convo.id}`);
-    } catch (err: any) {
-      // e.g. blocked -- surface as the same lightweight toast pattern used elsewhere
-      setPhase2Toast(true);
-      setTimeout(() => setPhase2Toast(false), 2200);
+      await navigator.clipboard.writeText(window.location.href);
     }
   }
-
-  async function handleRatingChange(item: any, rating: number) {
-    await supabase.from('items').update({ rating }).eq('id', item.id);
-    load();
-  }
-
-  async function confirmDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    await supabase.from('items').delete().eq('id', deleteTarget.id);
-    setDeleting(false);
-    setDeleteTarget(null);
-    load();
-  }
-
-  async function handleItemSaved(inserted: any) {
-    if (matchContext && inserted) {
-      await supabase.from('item_matches').insert({
-        source_item_id: matchContext.id,
-        copied_item_id: inserted.id,
-        matcher_id: currentUserId,
-      });
-    }
-    setSheetOpen(false);
-    setMatchContext(null);
-    load();
-  }
-
-  if (loading) return <main className="min-h-screen flex items-center justify-center">loading...</main>;
-  if (notFound || !profile) return <main className="min-h-screen flex items-center justify-center">profile not found</main>;
-
-  // Own categories, used both for the "+ Add" sheet and as the match-copy target list.
-  // For visitors this is fetched lazily (see handleMatch) to keep the initial page load light.
-  const myCategories = isOwner ? categories : visitorCategories;
 
   return (
-    <main className="min-h-screen relative">
-      {/* Top bar -- X layout: small avatar left (opens drawer), app icon center, bell/message right */}
-      <div className="flex items-center justify-between px-4 py-3 sticky top-0 bg-white z-30 border-b border-neutral-100">
-        <button
-          onClick={() => setDrawerOpen(true)}
-          aria-label="Profile menu"
-          className="w-9 h-9 rounded-full bg-neutral-200 overflow-hidden flex items-center justify-center flex-shrink-0 border-none p-0"
-        >
-          {profile.avatar_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={profile.avatar_url} alt={profile.display_name} className="w-full h-full object-cover" />
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="#8E8E8E">
-              <circle cx="12" cy="8" r="4" />
-              <path d="M4 21c0-4.5 4-7 8-7s8 2.5 8 7" />
-            </svg>
-          )}
-        </button>
-
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/icon.png" alt="iSpace" className="w-8 h-8 rounded-lg object-cover" />
-
-        <div className="w-9 h-9 flex items-center justify-center flex-shrink-0">
-          {isOwner && (
-            <button
-              onClick={() => router.push('/messages')}
-              aria-label="Messages"
-              className="w-9 h-9 rounded-full flex items-center justify-center bg-transparent border-none"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1D9BF0" strokeWidth="1.8">
-                <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.7 21a2 2 0 01-3.4 0" />
-              </svg>
-            </button>
-          )}
-          {!isOwner && currentUserId && (
-            <button
-              onClick={() => handleDiscuss(null)}
-              aria-label="Message"
-              className="w-9 h-9 rounded-full flex items-center justify-center bg-transparent border-none"
-            >
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#1D9BF0" strokeWidth="1.8">
-                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Drawer -- full-height side panel from the avatar, matching X's real side-menu (not a small floating card) */}
-      {drawerOpen && (
-        <div
-          className="fixed inset-0 z-40 flex"
-          style={{ background: 'rgba(0,0,0,0.35)' }}
-          onClick={() => setDrawerOpen(false)}
-        >
-          <div
-            className="h-full bg-white shadow-xl p-5"
-            style={{ width: '82%', maxWidth: 320 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setDrawerOpen(false)}
-              aria-label="Close"
-              className="w-16 h-16 rounded-full bg-neutral-200 overflow-hidden flex items-center justify-center border-none p-0 mb-3"
-            >
-              {profile.avatar_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={profile.avatar_url} alt={profile.display_name} className="w-full h-full object-cover" />
-              ) : (
-                <svg width="30" height="30" viewBox="0 0 24 24" fill="#8E8E8E">
-                  <circle cx="12" cy="8" r="4" />
-                  <path d="M4 21c0-4.5 4-7 8-7s8 2.5 8 7" />
-                </svg>
-              )}
-            </button>
-            <p className="font-bold text-[17px]" style={{ color: '#0F1419' }}>
-              {profile.display_name}
-            </p>
-            <p className="text-[14px] text-neutral-500 mb-5">@{profile.username}</p>
-
-            {isOwner && myConnectId && (
-              <p className="text-[13px] text-neutral-500 mb-4 -mt-3">
-                Connect ID: <span className="font-bold" style={{ color: '#0F1419' }}>{myConnectId}</span>
-              </p>
-            )}
-
-            <button
-              onClick={() => {
-                setDrawerOpen(false);
-                router.push('/edit-profile');
-              }}
-              className="w-full text-left font-bold text-[16px] py-3 border-t border-neutral-100 bg-transparent border-none flex items-center gap-3"
-              style={{ color: '#0F1419' }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F1419" strokeWidth="1.8">
+    <div
+      className="relative py-3.5 border-b border-neutral-100"
+      onTouchStart={startPress}
+      onTouchEnd={cancelPress}
+      onTouchMove={cancelPress}
+      onMouseDown={startPress}
+      onMouseUp={cancelPress}
+      onMouseLeave={cancelPress}
+    >
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-8 h-8 rounded-full bg-neutral-200 flex-shrink-0 overflow-hidden flex items-center justify-center">
+            {avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="#8E8E8E">
                 <circle cx="12" cy="8" r="4" />
                 <path d="M4 21c0-4.5 4-7 8-7s8 2.5 8 7" />
               </svg>
-              Profile
-            </button>
+            )}
+          </div>
+          <p className="text-[14px] truncate">
+            <span className="font-bold" style={{ color: '#0F1419' }}>{displayName}</span>{' '}
+            <span className="text-neutral-500">@{username} · {relativeTime(item.created_at)}</span>
+          </p>
+        </div>
 
-            {isOwner && (
+        {isOwner && (
+          <div className="relative flex-shrink-0">
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label="More"
+              className="w-7 h-7 flex items-center justify-center bg-transparent border-none text-neutral-400"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="5" cy="12" r="1.8" />
+                <circle cx="12" cy="12" r="1.8" />
+                <circle cx="19" cy="12" r="1.8" />
+              </svg>
+            </button>
+            {menuOpen && (
               <>
-                <button
-                  onClick={() => {
-                    setDrawerOpen(false);
-                    router.push('/connect');
-                  }}
-                  className="w-full text-left font-bold text-[16px] py-3 border-t border-neutral-100 bg-transparent border-none flex items-center gap-3"
-                  style={{ color: '#0F1419' }}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F1419" strokeWidth="1.8">
-                    <circle cx="11" cy="11" r="7" />
-                    <path d="M21 21l-4.3-4.3" />
-                  </svg>
-                  Find people
-                </button>
-                <button
-                  onClick={() => {
-                    setDrawerOpen(false);
-                    router.push('/chats');
-                  }}
-                  className="w-full text-left font-bold text-[16px] py-3 border-t border-neutral-100 bg-transparent border-none flex items-center gap-3"
-                  style={{ color: '#0F1419' }}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F1419" strokeWidth="1.8">
-                    <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-                    <path d="M13.7 21a2 2 0 01-3.4 0" />
-                  </svg>
-                  Chats
-                </button>
-                <button
-                  onClick={() => {
-                    setDrawerOpen(false);
-                    router.push('/nearby');
-                  }}
-                  className="w-full text-left font-bold text-[16px] py-3 border-t border-neutral-100 bg-transparent border-none flex items-center gap-3"
-                  style={{ color: '#0F1419' }}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F1419" strokeWidth="1.8">
-                    <path d="M12 21s-7-6.5-7-11a7 7 0 0114 0c0 4.5-7 11-7 11z" />
-                    <circle cx="12" cy="10" r="2.5" />
-                  </svg>
-                  Nearby
-                </button>
+                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-neutral-200 z-20 py-1 w-32">
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onDelete?.(item);
+                    }}
+                    className="w-full text-left px-3 py-2 text-[13px] text-red-500 bg-transparent border-none"
+                  >
+                    Delete
+                  </button>
+                </div>
               </>
             )}
           </div>
+        )}
+      </div>
+
+      <div className="flex items-start justify-between gap-2 pr-1">
+        <div className="min-w-0">
+          <span className="text-[13px] font-medium" style={{ color: '#1D9BF0' }}>
+            @{categoryTag}
+          </span>
+          <p className="text-[16px] font-bold text-black leading-tight mt-0.5">{item.title}</p>
+          {item.subtitle && <p className="text-[13px] text-neutral-500">{item.subtitle}</p>}
         </div>
-      )}
-
-      <div className="flex px-2 mt-1">
-        <button
-          onClick={() => setActiveTab('like')}
-          className="flex-1 flex items-center justify-center py-3.5 bg-transparent border-none"
-          style={{ borderBottom: activeTab === 'like' ? '3px solid #1D9BF0' : '3px solid transparent' }}
-        >
-          <span
-            className="text-[15px]"
-            style={{ color: activeTab === 'like' ? '#0F1419' : '#536471', fontWeight: activeTab === 'like' ? 800 : 500 }}
-          >
-            Likes
-          </span>
-        </button>
-        <button
-          onClick={() => setActiveTab('dislike')}
-          className="flex-1 flex items-center justify-center py-3.5 bg-transparent border-none"
-          style={{ borderBottom: activeTab === 'dislike' ? '3px solid #1D9BF0' : '3px solid transparent' }}
-        >
-          <span
-            className="text-[15px]"
-            style={{ color: activeTab === 'dislike' ? '#0F1419' : '#536471', fontWeight: activeTab === 'dislike' ? 800 : 500 }}
-          >
-            Dislikes
-          </span>
-        </button>
-      </div>
-
-
-      {/* min-h ensures the swipeable area covers the rest of the screen even when
-          the active tab has no items -- otherwise the touch area collapses to
-          almost nothing and swipes below it are never detected. */}
-      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="min-h-[50vh] px-5 pt-2">
-        {(() => {
-          const tabHasAnyItems = categories.some((c) => c.items.some((i) => i.stance === activeTab));
-
-          if (!tabHasAnyItems) {
-            return (
-              <div className="flex flex-col items-center pt-8 pb-6">
-                <EmptyIllustration size={110} />
-                {isOwner ? (
-                  <>
-                    <p className="text-sm font-medium mt-4 mb-2 text-neutral-800">
-                      {activeTab === 'like' ? 'Nothing added yet' : 'No dislikes yet'}
-                    </p>
-                    {activeTab === 'dislike' && (
-                      <p className="text-[13px] text-neutral-400 mb-4 text-center leading-relaxed max-w-[240px]">
-                        Not everything's a hit — add something you didn't vibe with
-                      </p>
-                    )}
-                    <button
-                      onClick={() => {
-                        setMatchContext(null);
-                        setSheetOpen(true);
-                      }}
-                      className="bg-brand text-white rounded-lg px-6 py-2 text-sm font-medium"
-                    >
-                      Create
-                    </button>
-                  </>
-                ) : (
-                  <p className="text-sm text-neutral-400 mt-4">Nothing here yet</p>
-                )}
-              </div>
-            );
-          }
-
-          return categories.map((cat) => {
-            const filteredItems = cat.items.filter((i) => i.stance === activeTab);
-            if (filteredItems.length === 0) return null;
-
-            return (
-              <section key={cat.id} className="mb-5">
-                <div className="flex justify-between items-baseline mb-2">
-                  <p className="text-sm font-medium">{categoryLabel(cat)}</p>
-                  <p className="text-xs text-neutral-400">{filteredItems.length}</p>
-                </div>
-                <div className="flex flex-col gap-2">
-                  {filteredItems.map((item) => (
-                    <ItemCard
-                      key={item.id}
-                      item={item as any}
-                      categoryType={cat.type}
-                      categoryTag={categoryTagSlug(cat)}
-                      avatarUrl={profile.avatar_url}
-                      displayName={profile.display_name}
-                      username={profile.username}
-                      isOwner={isOwner}
-                      canInteract={canInteract && !isOwner}
-                      onReact={handleReact}
-                      onMatch={handleMatch}
-                      onDiscuss={handleDiscuss}
-                      onRatingChange={handleRatingChange}
-                      onLongPress={(i) => isOwner && setDeleteTarget(i)}
-                      onDelete={(i) => setDeleteTarget(i)}
-                    />
-                  ))}
-                </div>
-              </section>
-            );
-          });
-        })()}
-      </div>
-
-      {deleteTarget && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center px-8"
-          style={{ background: 'rgba(0,0,0,0.45)' }}
-          onClick={() => setDeleteTarget(null)}
+          className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+          style={{ background: isLike ? '#DCFCE7' : '#FEE2E2' }}
+          aria-label={isLike ? 'Liked' : 'Disliked'}
         >
-          <div className="bg-white rounded-xl p-4 w-full max-w-xs" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm font-medium mb-1">Delete "{deleteTarget.title}"?</p>
-            <p className="text-xs text-neutral-400 mb-4">This can't be undone.</p>
-            <div className="flex gap-2">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+            {isLike ? (
+              <path
+                d="M2 21h2a1 1 0 001-1v-9a1 1 0 00-1-1H2v11zM22 10.5A2.5 2.5 0 0019.5 8H14l.9-4.4c.1-.5 0-1-.3-1.4A2 2 0 0013 1L7 8.5V21h11a2 2 0 002-1.6l2-7.5v-1.4z"
+                fill="#16A34A"
+              />
+            ) : (
+              <path
+                d="M2 3h2a1 1 0 011 1v9a1 1 0 01-1 1H2V3zM22 13.5A2.5 2.5 0 0019.5 16H14l.9 4.4c.1.5 0 1-.3 1.4A2 2 0 0113 23L7 15.5V3h11a2 2 0 012 1.6l2 7.5v1.4z"
+                fill="#DC2626"
+              />
+            )}
+          </svg>
+        </div>
+      </div>
+
+      {showRating && (
+        <div className="my-1">
+          <StarRating
+            rating={item.rating || 0}
+            readOnly={!isOwner}
+            onChange={isOwner && onRatingChange ? (v) => onRatingChange(item, v) : undefined}
+          />
+        </div>
+      )}
+      {item.why_note && <p className="text-[14px] text-neutral-800 leading-snug mt-1 mb-2.5">{item.why_note}</p>}
+
+      {item.image_url && (
+        <div className="relative rounded-2xl overflow-hidden bg-neutral-100 mb-2.5" style={{ aspectRatio: '16 / 9' }}>
+          {isVideo ? (
+            <video src={item.image_url} className="w-full h-full object-cover" muted loop playsInline autoPlay />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={item.image_url} alt={item.title} className="w-full h-full object-cover" />
+          )}
+          {categoryType === 'songs' && item.audio_preview_url && (
+            <>
+              <audio ref={audioRef} src={item.audio_preview_url} className="hidden" />
               <button
-                onClick={() => setDeleteTarget(null)}
-                className="flex-1 border border-neutral-300 rounded-lg py-2 text-sm"
+                onClick={toggleSongPlay}
+                aria-label={songPlaying ? 'Pause' : 'Play 30 second preview'}
+                className="absolute inset-0 flex items-center justify-center bg-transparent border-none"
+                style={{ background: 'rgba(0,0,0,0.15)' }}
               >
-                Cancel
+                <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow">
+                  {songPlaying ? (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="#0F1419">
+                      <rect x="6" y="4" width="4" height="16" />
+                      <rect x="14" y="4" width="4" height="16" />
+                    </svg>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="#0F1419">
+                      <path d="M6 4l14 8-14 8z" />
+                    </svg>
+                  )}
+                </div>
               </button>
-              <button
-                onClick={confirmDelete}
-                disabled={deleting}
-                className="flex-1 bg-red-500 text-white rounded-lg py-2 text-sm"
-              >
-                {deleting ? '...' : 'Delete'}
-              </button>
-            </div>
-          </div>
+            </>
+          )}
         </div>
       )}
 
-      {sheetOpen && (
-        <AddItemSheet
-          categories={myCategories}
-          defaultStance={matchContext ? matchContext.stance : activeTab}
-          prefill={matchContext ? { title: matchContext.title, subtitle: matchContext.subtitle || undefined, image_url: matchContext.image_url } : undefined}
-          onClose={() => {
-            setSheetOpen(false);
-            setMatchContext(null);
-          }}
-          onSaved={handleItemSaved}
-        />
-      )}
-
-      <p className="text-center text-[11px] text-neutral-300 mt-8 px-5">made with iSpace</p>
-
-      {isOwner && totalItems > 0 && (
+      <div className="flex items-center justify-between max-w-[300px]">
         <button
-          onClick={() => {
-            setMatchContext(null);
-            setSheetOpen(true);
-          }}
-          aria-label="Add item"
-          className="fixed bottom-6 right-5 w-14 h-14 rounded-full bg-brand text-white text-2xl flex items-center justify-center shadow-lg z-40"
+          onClick={() => canInteract && onDiscuss(item)}
+          disabled={!canInteract}
+          className="flex items-center gap-1.5 bg-transparent border-none p-0"
+          aria-label="Discuss"
         >
-          +
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#536471" strokeWidth="1.8">
+            <path d="M21 11.5a8.4 8.4 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.4 8.4 0 01-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.4 8.4 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
+          </svg>
         </button>
-      )}
-
-      {phase2Toast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-black text-white text-xs px-4 py-2 rounded-full z-50 whitespace-nowrap">
-          Messaging launches in Phase 2 🚀
-        </div>
-      )}
-    </main>
+        <button
+          onClick={() => canInteract && onMatch(item)}
+          disabled={!canInteract}
+          className="flex items-center gap-1.5 bg-transparent border-none p-0"
+          aria-label="Add to my list too"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#536471" strokeWidth="1.8">
+            <path d="M17 2l4 4-4 4M3 11V9a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 01-4 4H3" />
+          </svg>
+          <span className="text-[13px] text-neutral-500">{item.match_count}</span>
+        </button>
+        <button
+          onClick={() => canInteract && onReact(item)}
+          disabled={!canInteract}
+          className="flex items-center gap-1.5 bg-transparent border-none p-0"
+          aria-label="Relate to this"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill={item.user_reacted ? '#F91880' : 'none'} stroke={item.user_reacted ? '#F91880' : '#536471'} strokeWidth="1.8">
+            <path d="M12 21s-7-4.5-9.5-9C.7 8.4 2 4.5 6 4c2-.3 3.8.8 6 3.2C14.2 4.8 16 3.7 18 4c4 .5 5.3 4.4 3.5 8-2.5 4.5-9.5 9-9.5 9z" />
+          </svg>
+          <span className="text-[13px]" style={{ color: item.user_reacted ? '#F91880' : '#536471' }}>{item.reaction_count}</span>
+        </button>
+        <button
+          onClick={handleShare}
+          className="flex items-center gap-1.5 bg-transparent border-none p-0"
+          aria-label="Share"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#536471" strokeWidth="1.8">
+            <path d="M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7M16 6l-4-4-4 4M12 2v14" />
+          </svg>
+        </button>
+      </div>
+    </div>
   );
 }
