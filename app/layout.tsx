@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Getmee',
+  title: 'iSpace',
   description: "No need to ask. It's all right here.",
 };
 
