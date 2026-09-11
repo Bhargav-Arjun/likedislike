@@ -23,6 +23,10 @@ drop table if exists profiles cascade;
 -- Run this entire file in Supabase SQL Editor (Project -> SQL Editor -> New query)
 
 -- ============ PROFILES ============
+
+-- Run this entire file in Supabase SQL Editor (Project -> SQL Editor -> New query)
+
+-- ============ PROFILES ============
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   username text unique not null check (username ~ '^[a-z0-9_]{3,30}$'),
@@ -681,4 +685,5 @@ $$ language plpgsql security definer;
 -- chat message too, cluttering the Messages/bell feed with one row per DM.
 -- The /chats conversation list already covers that -- drop it.
 drop trigger if exists on_message_created on messages;
+
 
