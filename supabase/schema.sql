@@ -1,22 +1,43 @@
+
+-- ============ CLEAN RESET ============
+
 drop trigger if exists on_auth_user_created on auth.users;
 
 drop function if exists public.handle_new_user() cascade;
 drop function if exists public.notify_on_reaction() cascade;
 drop function if exists public.notify_on_match() cascade;
 drop function if exists public.notify_on_message() cascade;
+drop function if exists public.generate_connect_id() cascade;
+drop function if exists public.get_my_connect_id() cascade;
+drop function if exists public.search_connect_id(text) cascade;
+drop function if exists public.enforce_message_rules() cascade;
+drop function if exists public.exit_conversation(uuid) cascade;
+drop function if exists public.haversine_km(numeric,numeric,numeric,numeric) cascade;
+drop function if exists public.find_nearby_users(numeric) cascade;
 
 drop table if exists notifications cascade;
 drop table if exists messages cascade;
 drop table if exists conversations cascade;
+drop table if exists reports cascade;
+drop table if exists blocks cascade;
+drop table if exists connect_id_search_log cascade;
 drop table if exists item_matches cascade;
 drop table if exists item_reactions cascade;
 drop table if exists items cascade;
 drop table if exists categories cascade;
 drop table if exists profiles cascade;
 
--- Run this entire file in Supabase SQL Editor (Project -> SQL Editor -> New query)
+-- Storage policies survive the public-table reset,
+-- so remove them explicitly before recreating them.
+drop policy if exists "public read avatars" on storage.objects;
+drop policy if exists "owner upload avatars" on storage.objects;
+drop policy if exists "owner update avatars" on storage.objects;
+drop policy if exists "owner delete avatars" on storage.objects;
 
--- Run this entire file in Supabase SQL Editor (Project -> SQL Editor -> New query)
+drop policy if exists "public read item images" on storage.objects;
+drop policy if exists "owner upload item images" on storage.objects;
+drop policy if exists "owner update item images" on storage.objects;
+drop policy if exists "owner delete item images" on storage.objects;
 
 -- ============ PROFILES ============
 create table profiles (
