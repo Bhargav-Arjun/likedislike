@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase, Profile } from '@/lib/supabase';
+import { supabase, Profile, slugifyAndReserveUsername, looksLikeDefaultUsername, getMyConnectId } from '@/lib/supabase';
 
 const SOCIAL_FIELDS: { key: keyof Profile; label: string; placeholder: string }[] = [
   { key: 'whatsapp', label: 'WhatsApp', placeholder: 'phone number' },
   { key: 'youtube', label: 'YouTube', placeholder: 'channel link' },
+  { key: 'threads', label: 'Threads', placeholder: 'profile link' },
   { key: 'snapchat', label: 'Snapchat', placeholder: 'profile link' },
   { key: 'facebook', label: 'Facebook', placeholder: 'profile link' },
   { key: 'gmail', label: 'Gmail', placeholder: 'you@gmail.com' },
@@ -22,6 +23,11 @@ export default function EditProfile() {
   const [error, setError] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [connectId, setConnectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    getMyConnectId().then(setConnectId);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -64,10 +70,19 @@ export default function EditProfile() {
       avatarUrl = `${pub.publicUrl}?t=${Date.now()}`;
     }
 
+    // The URL only ever gets derived from the name once -- if it's already
+    // been customized (no longer the random "userab12cd34" style), leave it
+    // alone so saving unrelated changes (socials, gender...) never breaks a
+    // link someone's already shared.
+    let username = profile.username;
+    if (looksLikeDefaultUsername(username) && profile.display_name.trim()) {
+      username = await slugifyAndReserveUsername(profile.display_name, profile.id);
+    }
+
     const { error: saveError } = await supabase
       .from('profiles')
       .update({
-        username: profile.username,
+        username,
         display_name: profile.display_name,
         avatar_url: avatarUrl,
         gender: profile.gender || null,
@@ -78,6 +93,7 @@ export default function EditProfile() {
         gmail: profile.gmail || null,
         telegram: profile.telegram || null,
         phone: profile.phone || null,
+        threads: profile.threads || null,
       })
       .eq('id', profile.id);
 
@@ -86,7 +102,7 @@ export default function EditProfile() {
       setError(saveError.message);
       return;
     }
-    router.push(`/${profile.username}`);
+    router.push('/home');
   }
 
   if (loading || !profile) return <main className="min-h-screen flex items-center justify-center">loading...</main>;
@@ -130,6 +146,12 @@ export default function EditProfile() {
           <p className="text-center text-sm text-brand mt-2">Change photo</p>
         </label>
       </div>
+
+      {connectId && (
+        <p className="text-center text-xs text-neutral-500 mb-4">
+          Connect ID: <span className="font-bold text-black tracking-wider">{connectId}</span>
+        </p>
+      )}
 
       <label className="text-xs text-neutral-500">Name</label>
       <input
