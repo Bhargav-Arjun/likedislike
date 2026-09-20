@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -194,6 +193,9 @@ export default function Home() {
                     item={item as any}
                     categoryType={cat.type}
                     categoryTag={categoryTagSlug(cat)}
+                    avatarUrl={profile?.avatar_url ?? null}
+                    displayName={profile?.display_name ?? ''}
+                    username={profile?.username ?? ''}
                     isOwner={true}
                     canInteract={false}
                     onReact={noop}
